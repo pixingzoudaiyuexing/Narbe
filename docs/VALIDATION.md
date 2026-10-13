@@ -12,6 +12,7 @@
 | 真实浏览器 + 真实 Go/SQLite + Mock 云 | TestBrowser / Playwright + Google Chrome | 登录→接入账号→地区/规格/镜像→创建→任务→资源→删除确认→密码校验→退出；丢失提交响应重试 ID 不变；无 pageerror |
 | 浏览器视觉 | 桌面 1440×1000、手机 390×844 | 实际截图检查，无页面水平溢出；移动表格显式提示左右滑动 |
 | 真实官方公共只读数据 | `NARBE_LIFECYCLE_LIVE=1 go test ./internal/lifecycle -v` | Ubuntu 24.04 标准维护至2029-05-31、Debian13至2028-08-09、WindowsServer2025至2029-11-13，解析通过。此证据不是云账号 E2E |
+| 回归有效性 | 临时错误密码恒通过 / Azure任务后缀固定的定向变异 | 相应测试确实变红，恢复提交源码后变绿 |
 | Fuzz | Unseal 约1,997次；Azure资源路径约84,771次 | 通过；没有网络请求 |
 | 真实 Docker 一键安装 | `python3 scripts/test_install.py`，调用实际 start.sh/build.sh/Compose | 多阶段构建→临时健康检查→Compose healthy→初始登录/API→安全配置核对通过；使用独立 disposable 项目，已清理 |
 | 真实 Docker 持久化 | `python3 scripts/test_runtime.py` | 改密后重启/重建容器均保留新密码，旧 bootstrap 文件不覆盖；非root/只读根FS/日志轮转核对通过；测试Volume已清理 |
@@ -33,7 +34,7 @@ HTTP 合同和浏览器云替身均为 Mock，不代表真实四云 API 返回�
 
 开发前：`df -h .` 可用约 **35 GiB**；Docker 库存为空，镜像/容器/Volume/构建缓存均0。
 
-最终只保留一个经验证的 `narbe/local:current` 镜像：`sha256:8ffeb1bc81a726ccc3c38879ab8e9ef0ad74afc1b3a020296e418bf6d1046a88`；压缩内容 **5,357,725 bytes（约5.36 MB）**，Docker库存实际占用 **18.25 MB**。清理后可用约 **33 GiB**，最终精确 df 回读见交付消息。Docker `.Size` 为压缩内容口径，`docker system df -v` 另给实际占用，不混用。
+最终只保留一个经验证的 `narbe/local:current` 镜像：`sha256:8ffeb1bc81a726ccc3c38879ab8e9ef0ad74afc1b3a020296e418bf6d1046a88`；压缩内容 **5,357,725 bytes（约5.36 MB）**，Docker库存实际占用 **18.25 MB**。清理时曾读到约 **33 GiB**，最终再次回读为约 **35 GiB**；宿主共享磁盘会波动，不将其他进程释放空间归因于 Narbe 清理。Docker `.Size` 为压缩内容口径，`docker system df -v` 另给实际占用，不混用。
 
 已回收：本任务各次唯一专用 Buildx Builder 与其缓存、smoke容器、disposable安装/持久化测试容器/网络/Volume、本任务过期镜像657c6efe088a、1912d84186a0，以及无引用的本次专用构建工具镜像51344df7c403。构建源码和 npm 开发依赖为必要交付/复测内容；共享Go工具链/模块缓存没有作全局删除。未清理其他项目资源，未运行全局 prune。
 
@@ -44,9 +45,9 @@ HTTP 合同和浏览器云替身均为 Mock，不代表真实四云 API 返回�
 * **真实四云 E2E：NOT VERIFIED**，没有账号/逐项计费授权。
 * **完整旧版功能覆盖：BLOCKED**，官方旧镜像registry超时，真实UI/API未观察；换IP/定时同步仅有未关联历史线索。
 * **正式独立审核：PENDING**，未分配审核者；不以内部审查或扫描替代。
-* **合并/上线：未执行**；交付通过 Draft PR。
+* **合并/上线：未执行**；交付通过 [Draft PR #1](https://github.com/pixingzoudaiyuexing/Narbe/pull/1)。
 
-CI 会在 push/PR 后运行相同基础检查、浏览器流程及 amd64 Docker/持久化验证；实际远端结论在交付消息记录，配置本身不算CI通过。
+远端 CI 已对实现提交 `e8d78b76c9769e43fa2f856ea11e691938496986` 实际通过：[Push 检查](https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/38434960337)、[PR 检查](https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/38434961416)。覆盖 Go race/vet、9类清理测试、漏洞扫描、Chromium真实应用流程、Linux amd64 Docker构建与容器持久化。后续提交如果仅更新本报告，新增远端结果在交付消息记录。
 
 ## 截图（云数据为测试替身）
 
