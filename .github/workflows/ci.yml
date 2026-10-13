@@ -1,0 +1,31 @@
+name: Narbe checks
+on:
+  pull_request:
+  push:
+    branches: [main, 'codex/**']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.26.9'
+          cache: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - run: test -z "$(gofmt -l cmd internal)"
+      - run: go vet ./...
+      - run: go test -race ./... -count=1
+      - run: python3 scripts/test_build.py
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      - run: npm ci --ignore-scripts
+      - run: npx prettier --check internal/web/assets scripts/browser-test.mjs
+      - run: npx playwright install --with-deps chromium
+      - run: NARBE_BROWSER_TEST=1 go test ./internal/app -run TestBrowser -v -timeout=180s
+      - run: docker build -t narbe/ci:check .
+      - run: NARBE_IMAGE=narbe/ci:check python3 scripts/test_runtime.py

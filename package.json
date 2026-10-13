@@ -1,0 +1,1 @@
+{"name":"narbe-browser-validation","private":true,"type":"module","scripts":{"test:browser":"NARBE_BROWSER_TEST=1 go test ./internal/app -run TestBrowser -v"},"devDependencies":{"playwright":"1.58.2","prettier":"3.6.2"}}

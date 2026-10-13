@@ -1,0 +1,43 @@
+name: narbe
+services:
+  narbe:
+    image: ${NARBE_IMAGE:-narbe/local:current}
+    build:
+      context: .
+    restart: unless-stopped
+    ports:
+      - "${NARBE_BIND:-127.0.0.1}:${NARBE_PORT:-8080}:8080"
+    environment:
+      NARBE_DATA_DIR: /data
+      NARBE_LISTEN: 0.0.0.0:8080
+      NARBE_ORIGIN: ${NARBE_ORIGIN:-http://localhost:8080}
+      NARBE_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      NARBE_LOG_LEVEL: ${NARBE_LOG_LEVEL:-info}
+    secrets:
+      - admin_password
+    volumes:
+      - narbe_data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 384m
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+    labels:
+      io.narbe.project: Narbe
+volumes:
+  narbe_data:
+    labels:
+      io.narbe.project: Narbe
+secrets:
+  admin_password:
+    file: ${NARBE_PASSWORD_FILE:-.local/admin-password}
