@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real beta.1 -> candidate Compose upgrade on a disposable Narbe volume only."""
+"""Real previous release -> candidate Compose upgrade on a disposable Narbe volume only."""
 import argparse
 import hashlib
 import http.cookiejar
@@ -99,7 +99,7 @@ with tempfile.TemporaryDirectory(prefix='narbe-upgrade-') as tmp:
         after=read_snapshot('after');assert before==after,'master.key, password/settings or credential rows changed'
         compose('up','-d','--no-build','--pull','never','--force-recreate','--wait')
         assert login(replacement)[0]==200
-        print('PASS: real beta.1 -> candidate Compose upgrade and recreation preserve same volume, master.key, password/settings and account credential rows; health/non-root/read-only/security/log rotation verified; no cloud operations.')
+        print('PASS: real previous-release -> candidate Compose upgrade and recreation preserve same volume, master.key, password/settings and account credential rows; health/non-root/read-only/security/log rotation verified; no cloud operations.')
     finally:
         compose('down','--remove-orphans')
         if made:

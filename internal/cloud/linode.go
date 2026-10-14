@@ -55,6 +55,9 @@ func (l *Linode) pages(ctx context.Context, path string, out any) error {
 			return &Error{Code: "Linode 分页响应无效，不能确认资源数量"}
 		}
 		all = append(all, res.Data...)
+		if len(all) > 5000 {
+			return &Error{Code: "Linode查询超过安全上限，请缩小查询范围"}
+		}
 		if path == "/linode/instances" && len(all) > InventoryLimit {
 			return &Error{Code: "Linode 实例数量超限，不能确认总数"}
 		}
@@ -75,7 +78,7 @@ func (l *Linode) Catalog(ctx context.Context, region, plan string) (Catalog, err
 	}
 	for _, r := range regions {
 		if r.Status == "ok" && contains(r.Capabilities, "Linodes") {
-			c.Regions = append(c.Regions, Choice{ID: r.ID, Name: r.Label, Extra: map[string]string{"siteType": r.Site_type}})
+			c.Regions = append(c.Regions, Choice{ID: r.ID, Name: r.Label, Extra: map[string]string{"siteType": r.Site_type, "linodeInterfaces": fmt.Sprint(contains(r.Capabilities, "Linode Interfaces"))}})
 		}
 	}
 	if region == "" {
@@ -165,7 +168,7 @@ func (l *Linode) Create(ctx context.Context, s Spec, token string) (Operation, e
 	if e := ValidateLinodePassword(s.Password); e != nil {
 		return Operation{}, e
 	}
-	body := map[string]any{"label": s.Name, "region": s.Region, "type": s.Plan, "image": s.Image, "booted": true, "backups_enabled": s.Backups, "tags": []string{"narbe-" + token}}
+	body := map[string]any{"label": s.Name, "region": s.Region, "type": s.Plan, "image": s.Image, "booted": true, "interface_generation": "legacy_config", "firewall_id": -1, "backups_enabled": s.Backups, "tags": []string{"narbe-" + token}}
 	if s.Password != "" {
 		body["root_pass"] = s.Password
 	}
@@ -175,15 +178,42 @@ func (l *Linode) Create(ctx context.Context, s Spec, token string) (Operation, e
 	if s.UserData != "" {
 		return Operation{}, &Error{Code: "此适配器不接受初始化脚本，请使用 SSH 配置"}
 	}
+	op := Operation{Region: s.Region, Expected: "running", Linode: &LinodeOperation{Action: "create", Firewall: s.Firewall}}
+	if s.Firewall != nil && s.Firewall.Mode != "all" {
+		if e := l.ValidateFirewallSelection(ctx, *s.Firewall); e != nil {
+			return op, e
+		}
+		fid, e := l.selectionID(ctx, s.Firewall, token, &op)
+		if e != nil {
+			return op, e
+		}
+		body["firewall_id"] = fid
+		f, e := l.firewall(ctx, fmt.Sprint(fid))
+		if e != nil {
+			if len(op.Owned) > 0 && !Uncertain(e) {
+				e = &Error{Code: "防火墙已创建但回读未完成，请核实关联资源", Uncertain: true}
+			}
+			return op, e
+		}
+		op.Linode.Firewall = &FirewallSelection{Mode: "existing", ID: fid, Rules: &f.Rules}
+	}
 	var res linInstance
 	e := l.call(ctx, "POST", "/linode/instances", body, &res)
 	if e != nil {
-		return Operation{}, e
+		if len(op.Owned) > 0 && !Uncertain(e) {
+			e = &Error{Code: "防火墙已创建但实例创建未完成，请核实账本关联资源", Uncertain: true}
+		}
+		return op, e
 	}
 	if res.ID == 0 {
-		return Operation{}, &Error{Code: "未返回实例标识", Uncertain: true}
+		return op, &Error{Code: "未返回实例标识", Uncertain: true}
 	}
-	return Operation{ResourceID: fmt.Sprint(res.ID), Region: s.Region, Expected: "running"}, nil
+	op.ResourceID = fmt.Sprint(res.ID)
+	op.Owned = append(op.Owned, "linode:"+op.ResourceID)
+	if e := recordOperation(ctx, op); e != nil {
+		return op, e
+	}
+	return op, nil
 }
 func (l *Linode) Action(ctx context.Context, i Instance, action, token string) (Operation, error) {
 	op := Operation{ResourceID: i.ID, Region: i.Region, Expected: "running"}
@@ -201,6 +231,9 @@ func (l *Linode) Action(ctx context.Context, i Instance, action, token string) (
 	return op, l.call(ctx, "POST", "/linode/instances/"+Escape(i.ID)+"/"+a, map[string]any{}, nil)
 }
 func (l *Linode) Poll(ctx context.Context, op Operation) (bool, error) {
+	if op.Linode != nil {
+		return l.pollAdvanced(ctx, op)
+	}
 	var res linInstance
 	e := l.call(ctx, "GET", "/linode/instances/"+Escape(op.ResourceID), nil, &res)
 	if e != nil {

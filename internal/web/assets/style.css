@@ -896,3 +896,85 @@ td button.name {
     flex-wrap: wrap;
   }
 }
+.detail-tabs,
+.management-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 20px 0;
+}
+.charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.metric-chart,
+.firewall-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  margin: 14px 0;
+}
+.metric-chart svg {
+  width: 100%;
+  height: auto;
+}
+.chart-axis {
+  stroke: #c4d2df;
+  stroke-width: 1;
+}
+.chart-line {
+  fill: none;
+  stroke: #245ddc;
+  stroke-width: 2;
+}
+.chart-caption {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #577087;
+}
+.firewall-picker {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin: 20px 0;
+  padding: 14px;
+  min-width: 0;
+}
+.firewall-rule-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.firewall-rule-row label {
+  font-size: 13px;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.firewall-rule-row input,
+.firewall-rule-row select {
+  width: 100%;
+  min-width: 0;
+}
+.target-comparison {
+  padding: 14px;
+  background: #f3f7fb;
+  border-radius: 8px;
+  margin: 16px 0;
+}
+@media (max-width: 700px) {
+  .charts {
+    grid-template-columns: 1fr;
+  }
+  .firewall-rule-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .detail-tabs button {
+    flex: 1;
+  }
+  .management-actions button {
+    width: 100%;
+  }
+}

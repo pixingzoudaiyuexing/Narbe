@@ -1,4 +1,13 @@
 import {
+  initLinode,
+  linodeDetails,
+  linodeAccount,
+  firewallFields,
+  readFirewallSelection,
+  loadFirewallOptions,
+  groupedRegions,
+} from "./linode-ui.js";
+import {
   configLabel,
   priceLabel,
   stateGroup,
@@ -33,6 +42,16 @@ const providers = {
   digitalocean: "DigitalOcean",
 };
 const labels = {
+  rebuild: "重装系统",
+  resize: "调整配置",
+  "password-reset": "重置root密码",
+  clone: "克隆新服务器",
+  migrate: "迁移数据中心",
+  "firewall-create": "创建云防火墙",
+  "firewall-rules": "修改防火墙规则",
+  "firewall-status": "切换防火墙状态",
+  "firewall-delete": "删除云防火墙",
+  "firewall-bind": "调整服务器防火墙",
   create: "创建服务器",
   start: "开机",
   stop: "关机",
@@ -490,7 +509,7 @@ function renderInstances(el) {
           })),
           state.accountId,
           "选择账号",
-        )}</select></label><label>搜索地区<input id="region-search" type="search" value="${esc(state.regionSearch)}" placeholder="中文位置或地区代码"></label><label>地区<select id="region">${options(regions, state.region, "全部地区")}</select></label><label>状态<select id="status-filter">${options(
+        )}</select></label><label>搜索地区<input id="region-search" type="search" value="${esc(state.regionSearch)}" placeholder="中文位置或地区代码"></label><label>地区<select id="region">${groupedRegions(regions, state.region, "全部地区")}</select></label><label>状态<select id="status-filter">${options(
           [
             { id: "running", name: "运行中" },
             { id: "stopped", name: "已关机" },
@@ -587,6 +606,10 @@ async function refresh(force = false, retry = "") {
   if (gen === state.generation) render();
 }
 function instanceDetails(i, acc, v) {
+  if (acc.provider === "linode") {
+    linodeDetails(i, acc, v);
+    return;
+  }
   openDialog(
     "服务器详情",
     `<dl class="summary"><dt>云厂商 / 账号</dt><dd>${esc(providers[acc.provider] + " · " + acc.name)}</dd><dt>服务器</dt><dd>${esc(i.name)}</dd><dt>地区</dt><dd>${esc(regionLabel(v.regions, i.region, i.regionName))}</dd><dt>资源 ID</dt><dd class="mono">${esc(i.id)}</dd><dt>状态</dt><dd>${badge(i.state, true, acc.provider)}</dd><dt>配置</dt><dd>${esc(configLabel(i, acc.provider))}<br>${esc(i.plan || "型号未确认")}</dd><dt>系统</dt><dd>${esc(i.image || "系统版本未确认")}</dd><dt>公网 IP</dt><dd>${esc(i.ips?.join(" / ") || "未分配或未确认")}${i.metadataIncomplete ? "（部分网络信息未确认，请检查读取权限）" : ""}</dd><dt>广告价格</dt><dd>${esc(priceLabel(i.pricing))}</dd><dt>查询范围</dt><dd>${esc(v.scope)}</dd></dl><p class="notice">配置以云厂商查询结果为准，未知信息不会视为0或免费。独立磁盘、公网IP、备份、流量及系统授权可能额外计费。管理操作提交前会重新核实资源身份。</p>`,
@@ -652,6 +675,7 @@ function accountDialog(acc) {
   form.onsubmit = (e) => {
     e.preventDefault();
     formAction(form, async () => {
+      const savedName = form.elements.name.value;
       const credentials = {};
       if (!acc || form.rotate.checked) {
         for (const [k] of credentialFields[provider])
@@ -671,6 +695,14 @@ function accountDialog(acc) {
       state.tab = "accounts";
       shell();
       toast("云账号已保存");
+      if (provider === "linode") {
+        const saved = state.accounts.find(
+          (a) =>
+            a.id ===
+            (acc?.id || state.accounts.find((a) => a.name === savedName)?.id),
+        );
+        if (saved) showLinodePermissions(saved);
+      }
     });
   };
 }
@@ -682,7 +714,7 @@ function renderAccounts(el) {
       `<button class="primary" id="add-account">＋ 接入云账号</button>`,
     ) +
     (state.accounts.length
-      ? `<div class="account-list">${state.accounts.map((a, n) => `<article class="account-row"><div class="provider-icon">${esc(providers[a.provider].slice(0, 2))}</div><div class="account-info"><h3>${esc(a.name)}</h3><div class="secondary">${providers[a.provider]} · 接入于 ${date(a.created)}</div>${snapshotInfo(a.id)}</div><div class="row-actions"><button data-summary-refresh="${n}">刷新统计</button><button data-view="${n}">查看服务器</button><button data-edit="${n}">编辑</button><button class="danger" data-remove="${n}">移除</button></div></article>`).join("")}</div>`
+      ? `<div class="account-list">${state.accounts.map((a, n) => `<article class="account-row"><div class="provider-icon">${esc(providers[a.provider].slice(0, 2))}</div><div class="account-info"><h3>${esc(a.name)}</h3><div class="secondary">${providers[a.provider]} · 接入于 ${date(a.created)}</div>${snapshotInfo(a.id)}</div><div class="row-actions"><button data-summary-refresh="${n}">刷新统计</button><button data-view="${n}">查看服务器</button>${a.provider === "linode" ? `<button data-billing="${n}">账单</button><button data-firewalls="${n}">云防火墙</button><button data-permissions="${n}">权限</button>` : ""}<button data-edit="${n}">编辑</button><button class="danger" data-remove="${n}">移除</button></div></article>`).join("")}</div>`
       : '<section class="panel"><div class="empty"><div class="empty-icon">◈</div><h2>还没有接入云账号</h2><p>选择云厂商并填写凭据，保存后即可查询资源。</p></div></section>') +
     '<p class="footer-note">移除账号只移除本地访问凭据，不会删除云端服务器。操作记录仍会保留。</p>';
   el.querySelector("#add-account").onclick = () => accountDialog();
@@ -693,6 +725,21 @@ function renderAccounts(el) {
           force: true,
           summary: true,
         }).catch(() => {})),
+  );
+  el.querySelectorAll("[data-billing]").forEach(
+    (b) =>
+      (b.onclick = () =>
+        linodeAccount(state.accounts[+b.dataset.billing], "billing")),
+  );
+  el.querySelectorAll("[data-firewalls]").forEach(
+    (b) =>
+      (b.onclick = () =>
+        linodeAccount(state.accounts[+b.dataset.firewalls], "firewalls")),
+  );
+  el.querySelectorAll("[data-permissions]").forEach(
+    (b) =>
+      (b.onclick = () =>
+        showLinodePermissions(state.accounts[+b.dataset.permissions])),
   );
   el.querySelectorAll("[data-edit]").forEach(
     (b) => (b.onclick = () => accountDialog(state.accounts[+b.dataset.edit])),
@@ -749,10 +796,11 @@ async function createDialog() {
     loadingCatalog = false;
   openDialog(
     "创建服务器",
-    `<form id="create-form"><div class="error-box" role="alert"></div><p class="sub">${esc(providers[provider])} · ${esc(account().name)}</p><div class="section-title"><span class="step">1</span>地区与配置</div><label class="field">服务器名称<input name="name" pattern="[A-Za-z0-9-]{1,63}" maxlength="63" required placeholder="例如：dev-server-01"></label><label class="field">搜索地区<input name="regionSearch" type="search" placeholder="输入中文位置或原始地区代码"></label><div class="grid2"><label class="field">地区<select name="region" required>${options(catalog?.regions, state.region, "正在加载地区…")}</select></label><label class="field">规格<select name="plan" required disabled><option value="">先选择地区</option></select></label></div><div id="plan-info" class="notice">先选择地区，查询该地区可用的CPU、内存、磁盘和价格。</div><button type="button" class="quiet" id="retry-catalog" disabled>重新查询（将重置配置选择）</button><label class="field">搜索系统镜像<input name="imageSearch" placeholder="Ubuntu、Debian、Windows Server…" type="search"></label><label class="field">系统镜像<select name="image" required disabled><option value="">先选择地区和规格</option></select><p class="help">优先展示上游维护中的版本。维护期来源于官方发行数据；无法核实时标记未确认。</p><p id="image-compatibility" class="help"></p></label><label class="check"><input name="showOlder" type="checkbox">显示维护结束或尚未发布的镜像</label><div id="network-fields"></div><div class="section-title"><span class="step">2</span>登录与启动</div><div id="access-fields"></div><details><summary>更多启动选项</summary>${["aws", "digitalocean"].includes(provider) ? '<label class="field">初始化脚本（可选）<textarea name="userData" maxlength="32768" placeholder="#!/bin/sh"></textarea></label>' : ""}${["aws", "digitalocean"].includes(provider) ? '<label class="check"><input name="ipv6" type="checkbox">分配 IPv6（需要地区及网络支持）</label>' : ""}${["linode", "digitalocean"].includes(provider) ? '<label class="check"><input name="backups" type="checkbox">启用云厂商自动备份（可能额外收费）</label>' : ""}${provider === "azure" ? '<label class="field">系统盘容量 GB（留空使用镜像默认值）<input name="disk" type="number" min="1" max="4095"></label>' : ""}</details><div class="section-title"><span class="step">3</span>核对配置</div><dl id="create-summary" class="summary" aria-live="polite"></dl><div class="notice">创建会产生云服务费用。提交后可在操作任务中查看进度。${provider === "azure" ? "将自动创建公网 IP 和网卡，资源名称附加任务后缀。所选子网需配置合适的安全规则。" : ""}</div><label class="field">再次输入服务器名称确认<input name="confirmName" required autocomplete="off"></label><div class="dialog-actions"><button type="button" data-close>取消</button><button class="primary" type="submit" disabled>确认创建</button></div></form>`,
+    `<form id="create-form"><div class="error-box" role="alert"></div><p class="sub">${esc(providers[provider])} · ${esc(account().name)}</p><div class="section-title"><span class="step">1</span>地区与配置</div><label class="field">服务器名称<input name="name" pattern="[A-Za-z0-9-]{1,63}" maxlength="63" required placeholder="例如：dev-server-01"></label><label class="field">搜索地区<input name="regionSearch" type="search" placeholder="输入中文位置或原始地区代码"></label><div class="grid2"><label class="field">地区<select name="region" required>${groupedRegions(catalog?.regions, state.region, "正在加载地区…")}</select></label><label class="field">规格<select name="plan" required disabled><option value="">先选择地区</option></select></label></div><div id="plan-info" class="notice">先选择地区，查询该地区可用的CPU、内存、磁盘和价格。</div><button type="button" class="quiet" id="retry-catalog" disabled>重新查询（将重置配置选择）</button><label class="field">搜索系统镜像<input name="imageSearch" placeholder="Ubuntu、Debian、Windows Server…" type="search"></label><label class="field">系统镜像<select name="image" required disabled><option value="">先选择地区和规格</option></select><p class="help">优先展示上游维护中的版本。维护期来源于官方发行数据；无法核实时标记未确认。</p><p id="image-compatibility" class="help"></p></label><label class="check"><input name="showOlder" type="checkbox">显示维护结束或尚未发布的镜像</label><div id="network-fields"></div><div class="section-title"><span class="step">2</span>登录与启动</div><div id="access-fields"></div>${provider === "linode" ? firewallFields() : ""}<details><summary>更多启动选项</summary>${["aws", "digitalocean"].includes(provider) ? '<label class="field">初始化脚本（可选）<textarea name="userData" maxlength="32768" placeholder="#!/bin/sh"></textarea></label>' : ""}${["aws", "digitalocean"].includes(provider) ? '<label class="check"><input name="ipv6" type="checkbox">分配 IPv6（需要地区及网络支持）</label>' : ""}${["linode", "digitalocean"].includes(provider) ? '<label class="check"><input name="backups" type="checkbox">启用云厂商自动备份（可能额外收费）</label>' : ""}${provider === "azure" ? '<label class="field">系统盘容量 GB（留空使用镜像默认值）<input name="disk" type="number" min="1" max="4095"></label>' : ""}</details><div class="section-title"><span class="step">3</span>核对配置</div><dl id="create-summary" class="summary" aria-live="polite"></dl><div class="notice">创建会产生云服务费用。提交后可在操作任务中查看进度。${provider === "azure" ? "将自动创建公网 IP 和网卡，资源名称附加任务后缀。所选子网需配置合适的安全规则。" : ""}</div><label class="field">再次输入服务器名称确认<input name="confirmName" required autocomplete="off"></label><div class="dialog-actions"><button type="button" data-close>取消</button><button class="primary" type="submit" disabled>确认创建</button></div></form>`,
   );
   const f = dialog.querySelector("form");
   const selectedAccount = account();
+  if (provider === "linode") loadFirewallOptions(f, aid);
   dialog.addEventListener(
     "close",
     () => {
@@ -786,6 +834,21 @@ async function createDialog() {
           : "尚未选择",
       ],
       ["服务器名称", f.elements.name.value || "尚未填写"],
+      ...(provider === "linode"
+        ? [
+            [
+              "云防火墙",
+              {
+                all: "全部放行（默认）",
+                existing: "使用已有防火墙",
+                custom: "自定义限制规则",
+              }[f.elements.firewallMode.value] +
+                (f.elements.allowUnverified.checked
+                  ? "；创建后人工核实，不保证已放行"
+                  : ""),
+            ],
+          ]
+        : []),
       ["配置", p ? configLabel(p, provider) + " · " + p.id : "尚未选择"],
       ["系统", im?.name || "尚未选择"],
       ["CPU 架构", p?.architecture || im?.architecture || "未确认"],
@@ -960,7 +1023,7 @@ async function createDialog() {
     }
   };
   f.regionSearch.oninput = () => {
-    f.region.innerHTML = options(
+    f.region.innerHTML = groupedRegions(
       regionChoices(catalog?.regions, f.regionSearch.value, f.region.value),
       f.region.value,
       "选择地区",
@@ -979,6 +1042,9 @@ async function createDialog() {
       const data = Object.fromEntries(new FormData(f));
       const im = catalog.images.find((i) => i.id === data.image);
       const spec = {
+        ...(provider === "linode"
+          ? { firewall: readFirewallSelection(f) }
+          : {}),
         name: data.name,
         region: data.region,
         plan: data.plan,
@@ -1016,7 +1082,7 @@ async function createDialog() {
     try {
       catalog = await api("catalog?accountId=" + encodeURIComponent(aid));
       if (!dialog.open || !f.isConnected || state.accountId !== aid) return;
-      f.region.innerHTML = options(catalog.regions, state.region);
+      f.region.innerHTML = groupedRegions(catalog.regions, state.region);
     } catch (e) {
       f.querySelector(".error-box").textContent = e.message;
     }
@@ -1077,7 +1143,22 @@ function actionDialog(i, action) {
 }
 async function updateJobs() {
   try {
+    const previous = new Map(state.jobs.map((j) => [j.id, j.state]));
     state.jobs = await api("jobs");
+    const completed = new Set(
+      state.jobs
+        .filter(
+          (j) =>
+            previous.has(j.id) &&
+            previous.get(j.id) !== j.state &&
+            ["succeeded", "failed", "unknown", "cancelled"].includes(j.state),
+        )
+        .map((j) => j.accountId),
+    );
+    for (const aid of completed) {
+      inventories.delete(aid);
+      queueInventory(aid, { summary: aid !== state.accountId }).catch(() => {});
+    }
     if (state.tab === "jobs") render();
   } catch (e) {
     if (state.csrf) toast(e.message);
@@ -1198,3 +1279,46 @@ try {
 setInterval(() => {
   if (state.csrf && !document.hidden) updateJobs();
 }, 5000);
+
+initLinode({
+  api,
+  esc,
+  options,
+  openDialog,
+  dialog,
+  intentID,
+  submit,
+  formAction,
+  account: () => account(),
+  accounts: () => state.accounts,
+  toast,
+});
+
+async function showLinodePermissions(acc) {
+  openDialog("Linode权限检查", "<p>正在查询…</p>");
+  const pane = dialog.querySelector(".dialog-body");
+  try {
+    const r = await api(
+      "linode?" +
+        new URLSearchParams({ accountId: acc.id, view: "permissions" }),
+    );
+    if (
+      !pane.isConnected ||
+      !state.accounts.some(
+        (a) => a.id === acc.id && a.revision === r.accountRevision,
+      )
+    )
+      return;
+    pane.innerHTML =
+      r.data
+        .map(
+          (p) =>
+            `<p>${esc(p.name)}：${esc(p.status)}<br><span class="help">${esc(p.scope)} · ${esc(p.write)}</span></p>`,
+        )
+        .join("") +
+      `<p class="help">高级操作完成核实还需events:read_only。缺少账单读取权限不影响服务器管理；无需支付相关写权限。</p>`;
+  } catch (e) {
+    if (pane.isConnected)
+      pane.innerHTML = `<p class="error-box">${esc(e.message)}</p>`;
+  }
+}

@@ -16,6 +16,7 @@ import (
 
 type Credentials map[string]string
 type Choice struct {
+	Continent      string            `json:"continent,omitempty"`
 	ID             string            `json:"id"`
 	Name           string            `json:"name"`
 	Architecture   string            `json:"architecture,omitempty"`
@@ -66,22 +67,23 @@ type Catalog struct {
 	Groups   []Choice `json:"groups"`
 }
 type Spec struct {
-	Name           string `json:"name"`
-	Region         string `json:"region"`
-	Plan           string `json:"plan"`
-	Image          string `json:"image"`
-	Architecture   string `json:"architecture"`
-	Network        string `json:"network"`
-	Group          string `json:"group"`
-	Key            string `json:"key"`
-	SSHPublicKey   string `json:"sshPublicKey"`
-	Password       string `json:"password"`
-	Username       string `json:"username"`
-	UserData       string `json:"userData"`
-	IPv6           bool   `json:"ipv6"`
-	Backups        bool   `json:"backups"`
-	Disk           int    `json:"disk"`
-	ManagementCIDR string `json:"managementCidr"`
+	Firewall       *FirewallSelection `json:"firewall,omitempty"`
+	Name           string             `json:"name"`
+	Region         string             `json:"region"`
+	Plan           string             `json:"plan"`
+	Image          string             `json:"image"`
+	Architecture   string             `json:"architecture"`
+	Network        string             `json:"network"`
+	Group          string             `json:"group"`
+	Key            string             `json:"key"`
+	SSHPublicKey   string             `json:"sshPublicKey"`
+	Password       string             `json:"password"`
+	Username       string             `json:"username"`
+	UserData       string             `json:"userData"`
+	IPv6           bool               `json:"ipv6"`
+	Backups        bool               `json:"backups"`
+	Disk           int                `json:"disk"`
+	ManagementCIDR string             `json:"managementCidr"`
 }
 type RelatedResource struct {
 	ID    string `json:"id"`
@@ -95,15 +97,16 @@ type ResourceLedger struct {
 	Resources   []RelatedResource `json:"resources,omitempty"`
 }
 type Operation struct {
-	ResourceID string          `json:"resourceId"`
-	PollURL    string          `json:"pollUrl,omitempty"`
-	ActionID   string          `json:"actionId,omitempty"`
-	Region     string          `json:"region"`
-	Expected   string          `json:"expected"`
-	Owned      []string        `json:"owned,omitempty"`
-	PollKind   string          `json:"pollKind,omitempty"`
-	NextPoll   int64           `json:"nextPoll,omitempty"`
-	Ledger     *ResourceLedger `json:"ledger,omitempty"`
+	Linode     *LinodeOperation `json:"linode,omitempty"`
+	ResourceID string           `json:"resourceId"`
+	PollURL    string           `json:"pollUrl,omitempty"`
+	ActionID   string           `json:"actionId,omitempty"`
+	Region     string           `json:"region"`
+	Expected   string           `json:"expected"`
+	Owned      []string         `json:"owned,omitempty"`
+	PollKind   string           `json:"pollKind,omitempty"`
+	NextPoll   int64            `json:"nextPoll,omitempty"`
+	Ledger     *ResourceLedger  `json:"ledger,omitempty"`
 }
 type Provider interface {
 	Catalog(context.Context, string, string) (Catalog, error)
@@ -255,6 +258,9 @@ func (r rest) call(ctx context.Context, method, path string, body, out any) erro
 	return e
 }
 func (r rest) callHeaders(ctx context.Context, method, path string, body, out any) (http.Header, error) {
+	return r.request(ctx, method, path, body, out, "")
+}
+func (r rest) request(ctx context.Context, method, path string, body, out any, filter string) (http.Header, error) {
 	var b io.Reader
 	if body != nil {
 		raw, e := json.Marshal(body)
@@ -269,6 +275,9 @@ func (r rest) callHeaders(ctx context.Context, method, path string, body, out an
 	}
 	req.Header.Set("Authorization", "Bearer "+r.token)
 	req.Header.Set("Content-Type", "application/json")
+	if filter != "" {
+		req.Header.Set("X-Filter", filter)
+	}
 	if method != "GET" {
 		if e := beforeCloudWrite(ctx); e != nil {
 			return nil, e

@@ -33,6 +33,7 @@ type App struct {
 	inventoryMu    sync.Mutex
 	inventories    map[string]*inventoryEntry
 	inventorySlots chan struct{}
+	advancedSlots  chan struct{}
 }
 type account struct {
 	ID       string `json:"id"`
@@ -42,16 +43,17 @@ type account struct {
 	Revision int    `json:"revision"`
 }
 type mutation struct {
-	ID              string     `json:"id"`
-	AccountID       string     `json:"accountId"`
-	Action          string     `json:"action"`
-	Region          string     `json:"region"`
-	Target          string     `json:"target"`
-	Name            string     `json:"name"`
-	Spec            cloud.Spec `json:"spec"`
-	Confirmation    string     `json:"confirmation"`
-	ConfirmName     string     `json:"confirmName"`
-	AccountRevision int        `json:"accountRevision"`
+	Advanced        *cloud.LinodeChange `json:"advanced,omitempty"`
+	ID              string              `json:"id"`
+	AccountID       string              `json:"accountId"`
+	Action          string              `json:"action"`
+	Region          string              `json:"region"`
+	Target          string              `json:"target"`
+	Name            string              `json:"name"`
+	Spec            cloud.Spec          `json:"spec"`
+	Confirmation    string              `json:"confirmation"`
+	ConfirmName     string              `json:"confirmName"`
+	AccountRevision int                 `json:"accountRevision"`
 }
 type job struct {
 	ID        string           `json:"id"`
@@ -70,7 +72,7 @@ type job struct {
 }
 
 func New(s *store.Store, origin string) *App {
-	return &App{S: s, Origin: strings.TrimRight(origin, "/"), Factory: cloud.New, Lifecycle: lifecycle.New(), attempts: map[string][]time.Time{}, loginSlots: make(chan struct{}, 2), wake: make(chan struct{}, 1), inventories: map[string]*inventoryEntry{}, inventorySlots: make(chan struct{}, 2)}
+	return &App{S: s, Origin: strings.TrimRight(origin, "/"), Factory: cloud.New, Lifecycle: lifecycle.New(), attempts: map[string][]time.Time{}, loginSlots: make(chan struct{}, 2), wake: make(chan struct{}, 1), inventories: map[string]*inventoryEntry{}, inventorySlots: make(chan struct{}, 2), advancedSlots: make(chan struct{}, 2)}
 }
 func (a *App) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -263,6 +265,8 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 		a.accounts(w, r)
 	case strings.HasPrefix(path, "accounts/"):
 		a.accountEdit(w, r, strings.TrimPrefix(path, "accounts/"))
+	case path == "linode" && r.Method == "GET":
+		a.linodeRead(w, r)
 	case path == "inventory" && r.Method == "GET":
 		a.inventory(w, r)
 	case path == "catalog" && r.Method == "GET":
@@ -546,6 +550,15 @@ func (a *App) validate(ctx context.Context, b mutation) error {
 	if b.Name == "" || b.ConfirmName != b.Name {
 		return errors.New("请输入准确的资源名称确认操作")
 	}
+	if cloud.LinodeAction(b.Action) {
+		if acc.Provider != "linode" {
+			return errors.New("高级管理仅支持Linode")
+		}
+		return a.validateLinode(ctx, b, p)
+	}
+	if b.Advanced != nil {
+		return errors.New("普通操作不能附带高级参数")
+	}
 	if b.Action == "create" {
 		if b.Target != "" || b.Name != b.Spec.Name || b.Region != b.Spec.Region {
 			return errors.New("创建配置不一致")
@@ -558,6 +571,9 @@ func (a *App) validate(ctx context.Context, b mutation) error {
 			return e
 		}
 		s := b.Spec
+		if acc.Provider != "linode" && s.Firewall != nil {
+			return errors.New("防火墙模式仅适用于Linode")
+		}
 		im, _ := cloud.Find(c.Images, s.Image)
 		plan, _ := cloud.Find(c.Plans, s.Plan)
 		if plan.Disk > 0 && plan.Disk < im.Disk {
@@ -644,6 +660,20 @@ func (a *App) validate(ctx context.Context, b mutation) error {
 				return errors.New("Azure Linux 需要有效的 SSH 公钥")
 			}
 		case "linode":
+			if len(s.Name) < 3 || len(s.Name) > 32 {
+				return errors.New("Linode名称长度需要3–32字符")
+			}
+			if advanced, ok := p.(cloud.LinodeAdvanced); ok {
+				selection := cloud.FirewallSelection{Mode: "all"}
+				if s.Firewall != nil {
+					selection = *s.Firewall
+				}
+				if e = advanced.ValidateFirewallSelection(ctx, selection); e != nil {
+					return e
+				}
+			} else if s.Firewall != nil {
+				return errors.New("该适配器无法核实Linode防火墙模式")
+			}
 			if s.Password == "" && s.SSHPublicKey == "" && s.Key == "" {
 				return errors.New("Linode 需要 root 密码或 SSH 公钥")
 			}

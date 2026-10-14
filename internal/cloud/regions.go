@@ -40,5 +40,6 @@ func RegionLabel(provider, id, official string) string {
 func LocalizeRegions(provider string, regions []Choice) {
 	for i := range regions {
 		regions[i].Name = RegionLabel(provider, regions[i].ID, regions[i].Name)
+ regions[i].Continent=RegionContinent(provider,regions[i].ID)
 	}
 }

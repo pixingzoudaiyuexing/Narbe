@@ -75,4 +75,13 @@ func TestBrowser(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	advanced := exec.Command("node", filepath.Join(repo, "scripts/browser-linode.mjs"), server.URL)
+	advanced.Dir = repo
+	advanced.Env = os.Environ()
+	out, e = advanced.CombinedOutput()
+	t.Log(string(out))
+	if e != nil {
+		t.Fatal(e)
+	}
+
 }

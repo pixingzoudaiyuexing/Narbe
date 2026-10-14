@@ -108,6 +108,23 @@ await page.route("**/api/**", async (route) => {
       { id: "other", name: "空账号", provider, created: 2, revision: 1 },
     ];
   else if (path === "jobs") body = [];
+  else if (path === "linode")
+    body = {
+      accountId: aid,
+      accountRevision: 1,
+      data:
+        new URL(req.url()).searchParams.get("view") === "instance"
+          ? {
+              instance: items()[0],
+              snapshot: "fixture",
+              generation: "legacy_config",
+              disks: [],
+              configs: [],
+              interfaces: [],
+              volumes: [],
+            }
+          : { items: [], snapshot: "fixture" },
+    };
   else if (path === "inventory") {
     if (aid === "fixture" && delayInventory) {
       delayInventory = false;
