@@ -9,9 +9,13 @@ COPY internal ./internal
 RUN go build -trimpath -ldflags='-w' -o /out/narbe ./cmd/narbe && mkdir -p /out/data
 
 FROM scratch
+ARG VERSION=dev
+ARG REVISION=unknown
 LABEL org.opencontainers.image.title="Narbe" \
       org.opencontainers.image.source="https://github.com/pixingzoudaiyuexing/Narbe" \
-      io.narbe.project="Narbe"
+      io.narbe.project="Narbe" \
+      org.opencontainers.image.version="$VERSION" \
+      org.opencontainers.image.revision="$REVISION"
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /out/narbe /narbe
 COPY --from=build --chown=65532:65532 /out/data /data

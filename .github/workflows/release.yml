@@ -1,0 +1,144 @@
+name: Narbe beta release
+on:
+  push:
+    branches: [codex/narbe-phase1]
+    paths:
+      - '.github/workflows/release.yml'
+      - 'Dockerfile'
+      - 'release/**'
+permissions:
+  contents: read
+concurrency:
+  group: narbe-v0.1.0-beta.1-release
+  cancel-in-progress: false
+env:
+  REVIEWED_SHA: 5ffbf3479ad1e079b4b35efcaae837ecf08f2b3b
+jobs:
+  build:
+    if: github.repository == 'pixingzoudaiyuexing/Narbe'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify the reviewed application tree
+        run: git diff --exit-code "$REVIEWED_SHA" HEAD -- cmd internal go.mod go.sum
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - name: Native build and runtime verification
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          version=$(cat release/VERSION)
+          test "$version" = v0.1.0-beta.1
+          host_arch=$(uname -m)
+          case "$ARCH:$host_arch" in amd64:x86_64|arm64:aarch64) ;; *) exit 1 ;; esac
+          builder="narbe-release-$GITHUB_RUN_ID-$ARCH"
+          image="narbe/release:$GITHUB_SHA-$ARCH"
+          cleanup() { status=$?; trap - EXIT; docker buildx rm "$builder" || status=1; exit "$status"; }
+          trap cleanup EXIT
+          docker buildx create --name "$builder" --driver docker-container --driver-opt image=mcr.microsoft.com/oss/v2/moby/buildkit:v0.34.0@sha256:51344df7c403f96f2e7fe41f4934daebc1ca8864bf314ff15a69c676be2e284c >/dev/null
+          docker buildx build --builder "$builder" --load --provenance=false --platform "linux/$ARCH" --build-arg "VERSION=$version" --build-arg "REVISION=$GITHUB_SHA" -t "$image" .
+          test "$(docker image inspect "$image" --format '{{.Architecture}}')" = "$ARCH"
+          NARBE_IMAGE="$image" python3 scripts/test_runtime.py
+          mkdir -p .local/release-image
+          docker save "$image" | gzip > ".local/release-image/narbe-$ARCH.tar.gz"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: narbe-image-${{ matrix.arch }}
+          path: .local/release-image/*.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: narbe-image-*
+          path: .local/release-input
+      - name: Publish immutable version and multi-architecture index
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash release/publish.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: narbe-release-metadata
+          path: .local/release-output/release.json
+          retention-days: 7
+          if-no-files-found: error
+  verify-published:
+    needs: publish
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: narbe-release-metadata
+          path: .local/release-metadata
+      - name: Pull published manifest and install on native architecture
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          umask 077
+          export DOCKER_CONFIG="$RUNNER_TEMP/narbe-pull-auth"
+          mkdir -p "$DOCKER_CONFIG"
+          trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          image=$(python3 -c 'import json; r=json.load(open(".local/release-metadata/release.json")); print(r["image"]+":"+r["version"]+"@"+r["digest"])')
+          docker pull --platform "linux/$ARCH" "$image"
+          python3 release/test_install.py --image "$image" --arch "$ARCH" --revision "$GITHUB_SHA"
+  bundle:
+    needs: verify-published
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: narbe-release-metadata
+          path: .local/release-metadata
+      - name: Create digest-pinned installation bundle
+        run: python3 release/bundle.py .local/release-metadata/release.json .local/release-dist
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: narbe-beta-release-files
+          path: .local/release-dist/*
+          retention-days: 7
+          if-no-files-found: error

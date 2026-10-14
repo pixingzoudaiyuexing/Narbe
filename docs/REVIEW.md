@@ -1,3 +1,5 @@
+Owner 本轮 BETA RELEASE DELIVERY 已确认应用提交 `5ffbf3479ad1e079b4b35efcaae837ecf08f2b3b` 正式复审PASS，六项Finding全部关闭。以下内容保留历史内部审查过程；不能把历史PENDING当作当前应用审核状态。发布仅允许打包/版本/工作流/文档，应用与安全运行配置保持已审核基线。
+
 # 内部审查与正式审核状态
 
 日期：2026-10-14。High Risk。**审核基线 c72b29a 已获正式独立审核 PASS WITH CONDITIONS；本轮六项修复仍需原 Independent Reviewer 正式复审，状态 PENDING。** 本文保留第一阶段历史内部审查记录；本轮修复详见 [正式审核修复报告](FORMAL_REVIEW_FIXES.md)。任何内部复核不授权合并或上线。

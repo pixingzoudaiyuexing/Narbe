@@ -4,6 +4,12 @@
 
 **当前为第一阶段候选实现，正式独立审核待完成。** 四云适配器有自动化 HTTP 合同测试，Web 流程使用真实浏览器和真实应用/数据库验证、云端使用测试替身。没有真实云账号 E2E 证据。旧 CloudPanel 官方镜像不可达，不能声称已证明全部旧版功能覆盖。详见 [覆盖与缺口](docs/COVERAGE.md) 和 [验证报告](docs/VALIDATION.md)。
 
+## 首个公开测试版本
+
+Owner 已确认应用提交 `5ffbf3479ad1e079b4b35efcaae837ecf08f2b3b` 正式独立复审PASS，六项Finding全部关闭。本轮提供 `v0.1.0-beta.1`，不等同真实云E2E和完整旧版覆盖最终验收，也不宣称生产稳定。
+
+无需服务器编译源码的GHCR安装包与说明见 [测试版安装](release/README.md)。发布安装包将版本锁定到准确digest，不使用latest；开发构建流程仍保留在下文。
+
 ## 安装
 
 需要 Docker Engine/Desktop、Docker Compose v2、Buildx、Bash、OpenSSL、Python 3；仅源码开发需要 Go **1.26.9+**。支持 Linux amd64/arm64 源码构建；当前本机实际验证 linux/arm64，amd64 在 CI 构建。
