@@ -63,6 +63,7 @@ type job struct {
 	Error     string           `json:"error,omitempty"`
 	Created   int64            `json:"created"`
 	Updated   int64            `json:"updated"`
+	Provider  string           `json:"provider"`
 }
 
 func New(s *store.Store, origin string) *App {
@@ -139,29 +140,10 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 	if host == "" {
 		host = r.RemoteAddr
 	}
-	now := time.Now()
-	a.mu.Lock()
-	items := a.attempts[host]
-	recent := items[:0]
-	for _, t := range items {
-		if now.Sub(t) < 10*time.Minute {
-			recent = append(recent, t)
-		}
-	}
-	if len(a.attempts) > 4096 {
-		for k, t := range a.attempts {
-			if len(t) == 0 || now.Sub(t[len(t)-1]) > 10*time.Minute {
-				delete(a.attempts, k)
-			}
-		}
-	}
-	if len(recent) >= 8 || len(a.attempts) > 4096 {
-		a.mu.Unlock()
+	if !a.allowLogin(host, time.Now()) {
 		fail(w, 429, "登录尝试过多，请十分钟后重试")
 		return
 	}
-	a.attempts[host] = append(recent, now)
-	a.mu.Unlock()
 	select {
 	case a.loginSlots <- struct{}{}:
 		defer func() { <-a.loginSlots }()
@@ -653,8 +635,8 @@ func (a *App) validate(ctx context.Context, b mutation) error {
 			if s.Password == "" && s.SSHPublicKey == "" && s.Key == "" {
 				return errors.New("Linode 需要 root 密码或 SSH 公钥")
 			}
-			if s.Password != "" && (len(s.Password) < 12 || len(s.Password) > 128) {
-				return errors.New("root 密码长度必须为 12–128 字符")
+			if e := cloud.ValidateLinodePassword(s.Password); e != nil {
+				return e
 			}
 			if s.UserData != "" || s.Disk != 0 {
 				return errors.New("Linode 在此处不支持初始化脚本或自定义磁盘大小")
@@ -782,7 +764,7 @@ func (a *App) submit(w http.ResponseWriter, r *http.Request) {
 	reply(w, 202, map[string]string{"id": b.ID})
 }
 func (a *App) jobs() ([]job, error) {
-	rows, e := a.S.DB.Query("SELECT id,account_id,action,region,target,name,state,progress,result,error,created,updated FROM jobs ORDER BY created DESC,id DESC LIMIT 200")
+	rows, e := a.S.DB.Query("SELECT j.id,j.account_id,j.action,j.region,j.target,j.name,j.state,j.progress,j.result,j.error,j.created,j.updated,a.provider FROM jobs j JOIN accounts a ON a.id=j.account_id ORDER BY j.created DESC,j.id DESC LIMIT 200")
 	if e != nil {
 		return nil, e
 	}
@@ -791,7 +773,7 @@ func (a *App) jobs() ([]job, error) {
 	for rows.Next() {
 		var j job
 		var result []byte
-		if e = rows.Scan(&j.ID, &j.AccountID, &j.Action, &j.Region, &j.Target, &j.Name, &j.State, &j.Progress, &result, &j.Error, &j.Created, &j.Updated); e != nil {
+		if e = rows.Scan(&j.ID, &j.AccountID, &j.Action, &j.Region, &j.Target, &j.Name, &j.State, &j.Progress, &result, &j.Error, &j.Created, &j.Updated, &j.Provider); e != nil {
 			return nil, e
 		}
 		if len(result) > 0 {

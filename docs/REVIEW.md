@@ -1,6 +1,6 @@
 # 内部审查与正式审核状态
 
-日期：2026-10-14。High Risk。**Formal Independent Review = REQUIRED / PENDING，Owner 尚未分配 Reviewer。** 本文件是 Engineer 内部审查记录，不是正式审核通过，不授权合并或上线。
+日期：2026-10-14。High Risk。**审核基线 c72b29a 已获正式独立审核 PASS WITH CONDITIONS；本轮六项修复仍需原 Independent Reviewer 正式复审，状态 PENDING。** 本文保留第一阶段历史内部审查记录；本轮修复详见 [正式审核修复报告](FORMAL_REVIEW_FIXES.md)。任何内部复核不授权合并或上线。
 
 ## 范围与攻击面
 

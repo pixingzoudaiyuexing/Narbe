@@ -38,20 +38,22 @@ NARBE_GOPROXY=https://goproxy.cn,direct ./scripts/start.sh
 3. 创建时从官方目录选择规格和镜像。填写登录方式、网络等厂商特有配置，重新输入服务器名称后确认费用。
 4. 实例操作依当前状态展示。删除、开关机、重启都需核实目标名称；删除无法撤销。
 5. 在「操作任务」查看进度。等待中的任务可取消；已提交的云操作无法通过关闭浏览器撤销。
-6. 结果未知时先使用只读核实，再检查云控制台。仅在确认资源实际情况后，使用管理员密码记录人工核实并解除本地阻塞。该操作不会重发、重试或删除云资源。服务商标签可能延迟，未查到资源并不证明请求未发生。
+6. 未派发任务在应用重启时取消；正常等待或校验超过 5 分钟也取消，需重新检查配置并进行新的确认。系统时间异常产生未来时间戳时同样保守取消。已派发任务结果未知时先使用只读核实，再检查云控制台。仅在确认资源实际情况后，使用管理员密码记录人工核实并解除本地阻塞。该操作不会重发、重试或删除云资源。服务商标签可能延迟，未查到资源并不证明请求未发生。
 
 ### 四云差异
 
 | 厂商 | 凭据 | 创建前置与登录方式 | 停止/删除边界 |
 |---|---|---|---|
 | AWS | Access Key ID / Secret / 可选 Session Token、验证地区 | 已有子网、安全组与 SSH key pair；子网和安全组同 VPC。动态 AMI 支持实际返回的 x86_64/ARM64。Windows 需 RSA key pair，密码在 AWS 控制台解密；Narbe 不接收私钥。 | 默认优雅停止；终止按云端磁盘 DeleteOnTermination 策略处理，务必先备份。重启仅报告请求受理。 |
-| Azure | Tenant / Client / Secret / Subscription / Resource Group | 已有资源组及 VNet 子网；自动创建任务专属 Standard 公网 IP、NSG、NIC 和 OS disk，名称附带任务摘要。输入可信 IPv4 管理 CIDR，仅向其开放 SSH/RDP；已有子网策略仍可能限制访问。Linux 使用 SSH 公钥；Windows 使用管理员密码。 | 「关机」deallocate 释放计算；「关机并保留分配」powerOff 仍计计算费用。**删除仅删除 VM，保留磁盘及网络；保留资源继续可能计费。** 部分创建也可能留下收费资源，任务显示完整计划路径，请在 Azure 控制台核实处理。不会删整个资源组。 |
+| Azure | Tenant / Client / Secret / Subscription / Resource Group | 已有资源组及 VNet 子网；自动创建任务专属 Standard 公网 IP、NSG、NIC 和 OS disk，名称附带任务摘要。输入可信 IPv4 管理 CIDR，仅向其开放 SSH/RDP；已有子网策略仍可能限制访问。Linux 使用 SSH 公钥；Windows 使用管理员密码。 | 「关机」deallocate 释放计算；「关机并保留分配」powerOff 仍计计算费用。**删除仅删除 VM，保留磁盘及网络；保留资源继续可能计费。** 删除任务关联可信原创建账本（同账号版本、资源组、完整 VM ID 和当前任务标签），展示资源 ID 并标记存在及费用未核实；无法确认账本时明确显示未知，必须到 Azure 控制台检查。 部分创建也可能留下收费资源，任务显示完整计划路径，请在 Azure 控制台核实处理。不会删整个资源组。 |
 | Linode | Personal Access Token | 动态地区及可用类型，root 密码或 SSH 公钥/账户密钥。IPv6 按厂商默认分配；可选收费备份。 | 删除同时删除实例磁盘和备份；独立 Volume、保留 IP 等可能继续存在和计费。重启仅报告请求受理。 |
 | DigitalOcean | Personal Access Token | 动态地区、规格、镜像；已有账户 SSH key；可选 IPv6、收费备份和初始化脚本。不提供 Windows 镜像或原生指定密码字段。 | 默认优雅 shutdown；可能无法完成关机，任务等待真实 off。普通删除不隐式调用关联资源的危险批量删除 API。 |
 
+Linode 官方 API 要求密码 7–128 字符并检查服务端强度分数，未公布评分算法。Narbe 保留更严格的 12 字符下限，拦截明显重复、连续序列、常见弱词及简单替换；这不保证通过云端强度评分，也不宣称固定“四类字符”是官方要求。随机密码、长随机短语和 SSH-only 均保留支持。
+
 使用最小权限凭据：AWS 需要对应 EC2 Describe / RunInstances / Start / Stop / Reboot / Terminate 与 Tag 权限；Azure 应用限制在指定资源组并具备 Compute/Network 相关权限，同时需要订阅地区、规格及镜像读取；Linode/DigitalOcean 需要实例读写、镜像/地区/规格/SSH key/Tag 的相应权限。应用接入成功只证明已验证读取权限，不证明创建配额、容量或全部写权限。
 
-镜像 ID 不写死。AWS 从可信发布者查询 AMI 并处理分页和废弃标记；Azure 动态枚举官方发布者的 offer/SKU/精确版本并比较架构/Hyper-V，拒绝需 Marketplace plan 的镜像；Linode 检查状态、废弃及服务商 EOL/expiry；DO 检查镜像地区和最小磁盘。创建任务执行前重新查询。维护期依据 Debian 官方 distro-info-data 的 Ubuntu/Debian CSV 与 Microsoft 官方 Windows Server 发布文档，每 24 小时刷新，自动识别正常新增版本。默认优先标准维护与安全延长维护；维护结束和未发布版本默认隐藏，可显式展开。Ubuntu Pro/ESM、Debian 第三方 ELTS 不冒充普通维护。
+镜像 ID 不写死。AWS 从可信发布者按支持的系统名称过滤 AMI，并处理完整分页、架构及废弃标记；Amazon Linux 可识别与展示，其维护期未建立权威动态映射时显示未确认；Azure 动态枚举官方发布者的 offer/SKU/精确版本并比较架构/Hyper-V，拒绝需 Marketplace plan 的镜像；Linode 检查状态、废弃及服务商 EOL/expiry；DO 检查镜像地区和最小磁盘。创建任务执行前重新查询。维护期依据 Debian 官方 distro-info-data 的 Ubuntu/Debian CSV 与 Microsoft 官方 Windows Server 发布文档，每 24 小时刷新，自动识别正常新增版本。默认优先标准维护与安全延长维护；维护结束和未发布版本默认隐藏，可显式展开。Ubuntu Pro/ESM、Debian 第三方 ELTS 不冒充普通维护。
 
 **云厂商“可用”不等于发行版仍受安全维护。** 数据源不可达、无法识别的自定义镜像或其他发行版会标记“维护期未确认”，不会推导为已维护。维护窗口也不证明某个镜像已经安装最新补丁。Linode/DO 不伪造 API 未提供的 ARM64 元数据。当前仅 AWS/Azure 按实际镜像和规格元数据开放 ARM64。
 

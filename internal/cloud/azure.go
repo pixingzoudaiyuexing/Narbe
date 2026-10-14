@@ -2,6 +2,7 @@ package cloud
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -353,6 +354,9 @@ func (a *Azure) Create(ctx context.Context, s Spec, token string) (Operation, er
 	}
 	nsgBody := map[string]any{"location": s.Region, "tags": tags, "properties": map[string]any{"securityRules": []any{map[string]any{"name": "management", "properties": map[string]any{"protocol": "Tcp", "sourcePortRange": "*", "destinationPortRange": port, "sourceAddressPrefix": s.ManagementCIDR, "destinationAddressPrefix": "*", "access": "Allow", "priority": 1000, "direction": "Inbound"}}}}}
 	if e := a.call(ctx, "PUT", nsg+"?api-version=2024-05-01", nsgBody, nil); e != nil {
+		if errors.Is(e, ErrDispatchExpired) {
+			return op, e
+		}
 		return op, &Error{Code: "安全组创建未完成，请核实关联资源", Uncertain: true}
 	}
 	if e := a.waitResource(ctx, nsg, "2024-05-01"); e != nil {
@@ -369,7 +373,7 @@ func (a *Azure) Create(ctx context.Context, s Spec, token string) (Operation, er
 	if len(image) != 4 {
 		return op, &Error{Code: "镜像标识无效", Uncertain: true}
 	}
-	profile := map[string]any{"computerName": name[:min(len(name), 15)], "adminUsername": s.Username}
+	profile := map[string]any{"computerName": azureComputerName(name), "adminUsername": s.Username}
 	if s.Password != "" {
 		profile["adminPassword"] = s.Password
 	}
@@ -548,4 +552,41 @@ func (a *Azure) pollOperation(ctx context.Context, op Operation) (bool, error) {
 	default:
 		return false, nil
 	}
+}
+
+// MatchesCreation validates a ledger against the current account scope and VM
+// task tag. A same-name VM rebuilt outside this task must not inherit its ledger.
+func (a *Azure) MatchesCreation(ctx context.Context, s Spec, id string, prior Operation, target string) bool {
+	expected := a.Plan(s, id)
+	if !strings.EqualFold(prior.ResourceID, expected.ResourceID) || !strings.EqualFold(target, expected.ResourceID) || !strings.EqualFold(prior.Region, s.Region) || len(prior.Owned) != len(expected.Owned) {
+		return false
+	}
+	for n := range expected.Owned {
+		if !strings.EqualFold(prior.Owned[n], expected.Owned[n]) {
+			return false
+		}
+	}
+	var vm azVM
+	if a.call(ctx, "GET", target+"?api-version=2024-07-01", nil, &vm) != nil {
+		return false
+	}
+	return strings.EqualFold(vm.ID, target) && strings.EqualFold(vm.Location, s.Region) && vm.Tags["narbe-job"] == id
+}
+
+func azureComputerName(name string) string {
+	computer := strings.Trim(name[:min(len(name), 15)], "-")
+	if computer == "" {
+		return "narbe"
+	}
+	numeric := true
+	for _, ch := range computer {
+		if ch < '0' || ch > '9' {
+			numeric = false
+			break
+		}
+	}
+	if numeric {
+		computer = "n" + computer[:min(len(computer), 14)]
+	}
+	return computer
 }

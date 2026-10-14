@@ -78,3 +78,10 @@ func TestOfficialCSVAllowsMissingOptionalTrailingFields(t *testing.T) {
 		t.Fatal(rows, e)
 	}
 }
+
+func TestAmazonLinuxMaintenanceRemainsUnknownWithoutVerifiedMapping(t *testing.T) {
+	status, end := Classify("al2023-ami-2026.10.0-kernel-x86_64", "amazonlinux", nil, time.Date(2026, 10, 14, 0, 0, 0, 0, time.UTC))
+	if status != "unknown" || end != "" {
+		t.Fatal("unverified Amazon Linux lifecycle presented as maintained", status, end)
+	}
+}

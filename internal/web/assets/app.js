@@ -444,7 +444,7 @@ async function createDialog() {
   const f = dialog.querySelector("form");
   function access() {
     f.querySelector("#access-fields").innerHTML =
-      `${["aws", "digitalocean", "linode"].includes(provider) ? `<label class="field">${provider === "aws" ? "SSH 密钥对" : "账号 SSH 密钥"}${provider === "linode" ? "（可选）" : ""}<select name="key" ${provider === "linode" ? "" : "required"}>${options(catalog?.keys, "", "选择已有密钥")}</select></label>` : ""}${["azure", "linode"].includes(provider) ? `${provider === "azure" ? '<label class="field">管理来源 IPv4 CIDR<input name="managementCidr" placeholder="你的公网 IP/32" required><p class="help">只允许这个可信地址范围访问 SSH 或 RDP。请在公网 IP 变化后到 Azure 控制台更新规则。</p></label><label class="field">管理员用户名<input name="username" value="narbe" pattern="[a-z0-9_-]{1,20}" required></label>' : ""}<label class="field">SSH 公钥${provider === "azure" ? "（Linux 必填）" : "（可选）"}<textarea name="sshPublicKey" placeholder="ssh-ed25519 AAAA…" maxlength="16384"></textarea></label><label class="field">${provider === "linode" ? "root 密码（使用 SSH 密钥可留空）" : "管理员密码（Windows 必填）"}<input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128"></label>` : ""}${provider === "aws" ? '<p class="help">Windows 请使用 RSA 密钥对，初始密码在 AWS 控制台解密查看。这里不会接收你的私钥。</p>' : ""}`;
+      `${["aws", "digitalocean", "linode"].includes(provider) ? `<label class="field">${provider === "aws" ? "SSH 密钥对" : "账号 SSH 密钥"}${provider === "linode" ? "（可选）" : ""}<select name="key" ${provider === "linode" ? "" : "required"}>${options(catalog?.keys, "", "选择已有密钥")}</select></label>` : ""}${["azure", "linode"].includes(provider) ? `${provider === "azure" ? '<label class="field">管理来源 IPv4 CIDR<input name="managementCidr" placeholder="你的公网 IP/32" required><p class="help">只允许这个可信地址范围访问 SSH 或 RDP。请在公网 IP 变化后到 Azure 控制台更新规则。</p></label><label class="field">管理员用户名<input name="username" value="narbe" pattern="[a-z0-9_-]{1,20}" required></label>' : ""}<label class="field">SSH 公钥${provider === "azure" ? "（Linux 必填）" : "（可选）"}<textarea name="sshPublicKey" placeholder="ssh-ed25519 AAAA…" maxlength="16384"></textarea></label><label class="field">${provider === "linode" ? "root 密码（使用 SSH 密钥可留空）" : "管理员密码（Windows 必填）"}<input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128"><p class="help">避免重复字符、连续数字和常见口令，建议使用密码管理器生成独立密码。云端还会检查密码强度。</p></label>` : ""}${provider === "aws" ? '<p class="help">Windows 请使用 RSA 密钥对，初始密码在 AWS 控制台解密查看。这里不会接收你的私钥。</p>' : ""}`;
   }
   function images() {
     const plan = catalog?.plans?.find((p) => p.id === f.plan.value),
@@ -590,7 +590,7 @@ function actionDialog(i, action) {
         : "操作可能短暂中断业务。";
   if (action === "delete" && provider === "azure")
     warning +=
-      " Azure 仅删除虚拟机，保留磁盘、网卡和公网 IP，保留资源仍可能计费。";
+      " Azure 仅删除虚拟机，磁盘、网卡、网络安全组和公网 IP 可能仍然存在；磁盘和公网 IP 等资源可能继续计费。删除成功不代表全部费用已停止。";
   if (action === "delete" && provider === "linode")
     warning += " Linode 会同时删除系统磁盘和实例备份。";
   if (action === "poweroff")
@@ -626,6 +626,27 @@ async function updateJobs() {
     if (state.csrf) toast(e.message);
   }
 }
+function deletionLedgerDetails(job) {
+  if (job.provider !== "azure" || job.action !== "delete") return "";
+  const ledger = job.result?.ledger;
+  const warning =
+    '<p class="notice">磁盘和公网 IP 等关联资源可能继续计费。虚拟机删除完成不代表全部费用已停止，请到 Azure 控制台逐项核实。</p>';
+  if (ledger?.status !== "linked")
+    return (
+      warning +
+      '<details class="deletion-ledger"><summary>关联资源与费用检查</summary><p>关联资源未知，需要到 Azure 控制台核实。请检查此虚拟机原有的磁盘、网卡、网络安全组及公网 IP；Narbe 不会自动删除这些资源。</p></details>'
+    );
+  const kinds = {
+    disk: "系统盘",
+    nic: "网卡",
+    nsg: "网络安全组",
+    "public-ip": "公网 IP",
+  };
+  return (
+    warning +
+    `<details class="deletion-ledger"><summary>关联资源与费用检查</summary><p>以下来自该虚拟机的 Narbe 创建账本，当前存在及收费状态尚未核实。请复制资源 ID 到 Azure 控制台逐项检查；Narbe 不会自动删除这些资源。</p><dl class="summary">${ledger.resources.map((resource) => `<dt>${esc(kinds[resource.kind] || resource.kind)}</dt><dd><span class="mono">${esc(resource.id)}</span><br>状态：存在及费用未核实</dd>`).join("")}</dl><p class="mono">来源任务：${esc(ledger.sourceJobId)}</p></details>`
+  );
+}
 function renderJobs(el) {
   el.innerHTML =
     heading(
@@ -633,7 +654,7 @@ function renderJobs(el) {
       "查看进度与结果。结果未知的操作不会自动重新执行。",
       `<button id="refresh-jobs">↻ 刷新</button>`,
     ) +
-    `<section class="panel">${state.jobs.length ? state.jobs.map((j) => `<article class="task-row"><div class="task-top"><div><h3>${esc(labels[j.action] || j.action)} · ${esc(j.name)}</h3><div class="secondary">${esc(state.accounts.find((a) => a.id === j.accountId)?.name || "已移除账号")} · ${esc(j.region)} · ${date(j.created)}</div></div>${badge(j.state === "running" ? "provisioning" : j.state)}</div><p>${esc(j.progress)}${j.error ? " · " + esc(j.error) : ""}</p><details><summary>资源与任务标识</summary><pre>${esc("任务：" + j.id + "\n资源：" + (j.result?.resourceId || j.target || "尚未取得") + (j.result?.owned?.length ? "\n关联资源（可能继续计费）：\n" + j.result.owned.join("\n") : ""))}</pre></details>${j.state === "unknown" ? `<p><button data-reconcile="${esc(j.id)}">只读核实云端状态</button> <button data-resolve="${esc(j.id)}" data-name="${esc(j.name)}">已在云控制台核实</button></p>` : ""}${j.state === "queued" ? `<p><button data-cancel="${esc(j.id)}">取消等待中的操作</button></p>` : ""}</article>`).join("") : '<div class="empty"><div class="empty-icon">◷</div><h2>还没有操作任务</h2><p>创建或管理服务器后，操作进度会显示在这里。</p></div>'}</section><p class="footer-note">最多显示最近 200 条记录。网络中断或重启可能导致结果待核实；请先查看云控制台，不要直接重复创建。</p>`;
+    `<section class="panel">${state.jobs.length ? state.jobs.map((j) => `<article class="task-row"><div class="task-top"><div><h3>${esc(labels[j.action] || j.action)} · ${esc(j.name)}</h3><div class="secondary">${esc(state.accounts.find((a) => a.id === j.accountId)?.name || "已移除账号")} · ${esc(j.region)} · ${date(j.created)}</div></div>${badge(j.state === "running" ? "provisioning" : j.state)}</div><p>${esc(j.progress)}${j.error ? " · " + esc(j.error) : ""}</p>${deletionLedgerDetails(j)}<details><summary>资源与任务标识</summary><pre>${esc("任务：" + j.id + "\n资源：" + (j.result?.resourceId || j.target || "尚未取得") + (j.result?.owned?.length ? "\n关联资源（可能继续计费）：\n" + j.result.owned.join("\n") : ""))}</pre></details>${j.state === "unknown" ? `<p><button data-reconcile="${esc(j.id)}">只读核实云端状态</button> <button data-resolve="${esc(j.id)}" data-name="${esc(j.name)}">已在云控制台核实</button></p>` : ""}${j.state === "queued" ? `<p><button data-cancel="${esc(j.id)}">取消等待中的操作</button></p>` : ""}</article>`).join("") : '<div class="empty"><div class="empty-icon">◷</div><h2>还没有操作任务</h2><p>创建或管理服务器后，操作进度会显示在这里。</p></div>'}</section><p class="footer-note">最多显示最近 200 条记录。未派发任务等待或校验超过 5 分钟、应用重启时会取消，需重新检查并确认。已提交操作结果未知时，请先核实云端，不要直接重复创建。</p>`;
   el.querySelector("#refresh-jobs").onclick = updateJobs;
   for (const [attr, action] of [
     ["reconcile", "reconcile"],

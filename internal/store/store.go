@@ -20,6 +20,9 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// MaxQueuedAge bounds how long a confirmed operation may wait before its first cloud write.
+const MaxQueuedAge = 5 * time.Minute
+
 type Store struct {
 	DB   *sql.DB
 	aead cipher.AEAD
@@ -122,7 +125,17 @@ INSERT OR IGNORE INTO settings(key,value) VALUES('schema_version','1');
 			return nil, errors.New("master.key 与数据库不匹配，请恢复原密钥")
 		}
 	}
-	if _, e = db.Exec("UPDATE jobs SET state='unknown',progress='应用重启；请核实云端结果，系统不会自动重复执行',updated=unixepoch() WHERE state='running'; DELETE FROM sessions WHERE expires<unixepoch(); DELETE FROM confirmations WHERE expires<unixepoch();"); e != nil {
+	recovery, e := db.Begin()
+	if e != nil {
+		db.Close()
+		return nil, e
+	}
+	_, e = recovery.Exec("UPDATE jobs SET state='unknown',progress='应用重启；请核实云端结果，系统不会自动重复执行',updated=unixepoch() WHERE state='running'; UPDATE jobs SET state='cancelled',progress='应用重启，未派发任务已取消；请重新检查并确认操作',updated=unixepoch() WHERE state='queued'; DELETE FROM sessions WHERE expires<unixepoch(); DELETE FROM confirmations;")
+	if e == nil {
+		e = recovery.Commit()
+	}
+	if e != nil {
+		recovery.Rollback()
 		db.Close()
 		return nil, e
 	}

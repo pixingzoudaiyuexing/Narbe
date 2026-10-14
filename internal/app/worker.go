@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/pixingzoudaiyuexing/Narbe/internal/cloud"
@@ -39,12 +40,21 @@ func (a *App) finish(id, state, progress string, op cloud.Operation, err error) 
 	_, _ = a.S.DB.Exec("UPDATE jobs SET state=?,progress=?,result=COALESCE(?,result),error=?,updated=? WHERE id=? AND state='running'", state, progress, result, msg, store.Now(), id)
 }
 func (a *App) runOne(parent context.Context) bool {
+	if parent.Err() != nil {
+		return false
+	}
+	cutoff := store.Now() - int64(store.MaxQueuedAge/time.Second)
+	expired, e := a.S.DB.Exec("UPDATE jobs SET state='cancelled',progress=CASE WHEN created>? THEN '系统时间异常，未发送云操作；请重新检查并确认' ELSE '等待超过5分钟，未派发任务已取消；请重新检查并确认操作' END,updated=? WHERE state='queued' AND (created<=? OR created>?)", store.Now(), store.Now(), cutoff, store.Now())
+	if e != nil {
+		return false
+	}
+	expiredCount, _ := expired.RowsAffected()
 	var id string
 	var payload []byte
 	if e := a.S.DB.QueryRow("SELECT id,payload FROM jobs WHERE state='queued' ORDER BY created,id LIMIT 1").Scan(&id, &payload); e != nil {
-		return false
+		return expiredCount > 0
 	}
-	res, e := a.S.DB.Exec("UPDATE jobs SET state='running',progress='正在核实配置',updated=? WHERE id=? AND state='queued'", store.Now(), id)
+	res, e := a.S.DB.Exec("UPDATE jobs SET state='running',progress='正在核实配置',updated=? WHERE id=? AND state='queued' AND created>? AND created<=?", store.Now(), id, store.Now()-int64(store.MaxQueuedAge/time.Second), store.Now())
 	if e != nil {
 		return false
 	}
@@ -98,15 +108,50 @@ func (a *App) runOne(parent context.Context) bool {
 			return true
 		}
 	}
+	var created int64
+	if e = a.S.DB.QueryRow("SELECT created FROM jobs WHERE id=? AND state='running'", id).Scan(&created); e != nil {
+		return true
+	}
+	if parent.Err() != nil || ctx.Err() != nil || (created > store.Now() || created <= store.Now()-int64(store.MaxQueuedAge/time.Second)) {
+		a.finish(id, "cancelled", "等待或校验超过有效期，未发送云操作；请重新检查并确认", op, nil)
+		return true
+	}
+	if b.Action == "delete" && acc.Provider == "azure" {
+		op = cloud.Operation{ResourceID: b.Target, Region: b.Region, Expected: "deleted", Ledger: a.deletionLedger(ctx, b, p)}
+		result, _ := json.Marshal(op)
+		if _, e = a.S.DB.Exec("UPDATE jobs SET result=? WHERE id=? AND state='running'", result, id); e != nil {
+			a.finish(id, "failed", "删除账本保存失败，未发送操作", cloud.Operation{}, nil)
+			return true
+		}
+	}
+	// Ledger validation is read-only and can take time too. Recheck immediately before dispatch.
+	if parent.Err() != nil || ctx.Err() != nil || (created > store.Now() || created <= store.Now()-int64(store.MaxQueuedAge/time.Second)) {
+		a.finish(id, "cancelled", "等待或校验超过有效期，未发送云操作；请重新检查并确认", op, nil)
+		return true
+	}
+	ctx = cloud.WithDispatchDeadline(ctx, time.Unix(created, 0).Add(store.MaxQueuedAge))
+	ledger := op.Ledger
 	if b.Action == "create" {
 		op, e = p.Create(ctx, b.Spec, id)
 	} else {
 		op, e = p.Action(ctx, cloud.Instance{ID: b.Target, Name: b.Name, Region: b.Region}, b.Action, id)
 	}
+	if ledger != nil {
+		op.Ledger = ledger
+		if op.ResourceID == "" {
+			op.ResourceID = b.Target
+			op.Region = b.Region
+			op.Expected = "deleted"
+		}
+	}
 	if e != nil {
+		if errors.Is(e, cloud.ErrDispatchExpired) {
+			a.finish(id, "cancelled", "等待或校验超过有效期，未发送云操作；请重新检查并确认", op, nil)
+			return true
+		}
 		state := "failed"
 		progress := "云端拒绝操作"
-		if cloud.Uncertain(e) || len(op.Owned) > 0 {
+		if cloud.Uncertain(e) || (b.Action == "create" && len(op.Owned) > 0) {
 			state = "unknown"
 			progress = "操作结果待核实；请勿重复提交"
 		}
@@ -129,7 +174,11 @@ func (a *App) runOne(parent context.Context) bool {
 			return true
 		}
 		if done {
-			a.finish(id, "succeeded", "云端目标状态已达到", op, nil)
+			progress := "云端目标状态已达到"
+			if op.Ledger != nil {
+				progress = "虚拟机已删除；关联资源及费用未核实，请到 Azure 控制台检查"
+			}
+			a.finish(id, "succeeded", progress, op, nil)
 			return true
 		}
 		select {

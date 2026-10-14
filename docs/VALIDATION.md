@@ -1,3 +1,5 @@
+本报告下文记录第一阶段基线 c72b29a 的历史证据。本轮正式审核修复的新证据见 [FORMAL_REVIEW_FIXES.md](FORMAL_REVIEW_FIXES.md)，不能把旧 CI 与镜像证据当作新 diff 的验证。
+
 # 验证与交付证据
 
 验证日期：2026-10-13 至 2026-10-14（Asia/Shanghai）。源码在 `codex/narbe-phase1`；最终提交与 PR 见 Engineer 交付消息及 GitHub。所有真实云计费创建/删除均未执行。

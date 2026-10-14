@@ -73,7 +73,63 @@ try {
   await page.locator("#create-form button[type=submit]").click();
 
   await page.getByRole("heading", { name: "操作任务", exact: true }).waitFor();
-  await page.getByText("已完成", { exact: true }).waitFor();
+  await page
+    .locator(".task-row")
+    .filter({
+      has: page.getByRole("heading", {
+        name: "创建服务器 · browser-server",
+        exact: true,
+      }),
+    })
+    .getByText("已完成", { exact: true })
+    .waitFor();
+  const ledgerRow = page.locator(".task-row").filter({
+    has: page.getByRole("heading", {
+      name: "删除服务器 · azure-ledger-server",
+      exact: true,
+    }),
+  });
+  await ledgerRow.locator("details.deletion-ledger summary").click();
+  await ledgerRow
+    .getByText("当前存在及收费状态尚未核实", { exact: false })
+    .waitFor();
+  assert.equal(
+    await ledgerRow.locator("dl.summary dd").count(),
+    4,
+    "Azure retained-resource ledger missing",
+  );
+  assert.equal(
+    await ledgerRow
+      .locator("dl.summary dd")
+      .filter({ hasText: "状态：存在及费用未核实" })
+      .count(),
+    4,
+    "resource existence was presented as verified",
+  );
+  const unknownRow = page.locator(".task-row").filter({
+    has: page.getByRole("heading", {
+      name: "删除服务器 · azure-unlinked-server",
+      exact: true,
+    }),
+  });
+  await unknownRow.locator("details.deletion-ledger summary").click();
+  await unknownRow
+    .getByText("关联资源未知，需要到 Azure 控制台核实。", { exact: false })
+    .waitFor();
+  await page
+    .getByText("应用重启，未派发任务已取消；请重新检查并确认操作", {
+      exact: true,
+    })
+    .waitFor();
+  await page.screenshot({
+    path: screenshotDir + "/azure-delete-ledger.png",
+    fullPage: true,
+  });
+  assert.equal(
+    (await page.locator("body").innerText()).includes("fixture-cloud-secret"),
+    false,
+    "credential exposed in task details",
+  );
   await page.getByRole("button", { name: "服务器", exact: true }).click();
   await page.locator("#refresh").click();
   await page
@@ -141,7 +197,7 @@ try {
   );
   assert.deepEqual(errors, [], "browser errors");
   console.log(
-    "PASS: real browser + real Go API/SQLite + mock cloud: login/account/create/task/server/delete confirmation/settings/logout; desktop 1440x1000 and mobile 390x844; zero page errors.",
+    "PASS: real browser + real Go API/SQLite + mock cloud: login/account/create/task/server/delete confirmation/settings/logout; desktop 1440x1000 and mobile 390x844; Azure linked/unknown resource ledgers and restart cancellation reasons; zero page errors.",
   );
 } finally {
   await browser.close();

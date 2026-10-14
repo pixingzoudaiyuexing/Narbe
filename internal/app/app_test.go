@@ -24,9 +24,13 @@ type fakeProvider struct {
 	createErr, errorRead error
 	items                []cloud.Instance
 	beforeRead           func()
+	beforeCatalog        func()
 }
 
 func (f *fakeProvider) Catalog(context.Context, string, string) (cloud.Catalog, error) {
+	if f.beforeCatalog != nil {
+		f.beforeCatalog()
+	}
 	return cloud.Catalog{Regions: []cloud.Choice{{ID: "r", Name: "测试地区"}}, Plans: []cloud.Choice{{ID: "p", Name: "标准规格", Architecture: "x86_64", CPU: 2, Memory: 2048, Disk: 25}}, Images: []cloud.Choice{{ID: "im", Name: "Ubuntu 26.04 LTS", Architecture: "x86_64", Family: "ubuntu", Disk: 10}}, Keys: []cloud.Choice{{ID: "key", Name: "测试 SSH 密钥"}}}, nil
 }
 func (f *fakeProvider) Instances(context.Context, string) ([]cloud.Instance, error) {

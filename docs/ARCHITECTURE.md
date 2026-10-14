@@ -9,7 +9,7 @@ schema v1 包含 settings、sessions、accounts、jobs、confirmations。当前�
 * AES-256-GCM，随机 nonce，AAD 绑定账号/任务 ID。账号凭据、包含 root 密码或初始化脚本的任务载荷加密。
 * `master.key` 32 字节随机生成，0600；目录 0700、数据库 0600。缺失或不匹配密钥拒绝启动；settings 中的 GCM sentinel 先验证匹配，再恢复任务状态。
 * SQLite WAL、foreign_keys、busy_timeout、synchronous=FULL；进程级 `.lock` flock 防止第二个实例改写任务恢复状态。
-* 会话只存随机令牌的 SHA-256 摘要，12 小时有效。Argon2id 密码：64 MiB、2 iterations、2 lanes；使用标准 constant-time compare。登录按来源限速，哈希并发上限 2。
+* 会话只存随机令牌的 SHA-256 摘要，12 小时有效。Argon2id 密码：64 MiB、2 iterations、2 lanes；使用标准 constant-time compare。登录按来源限速（10 分钟最多 8 次），哈希并发上限 2。来源表最多 4096 条；容量满时清理/淘汰，优先保留受限来源，不能以全局容量拒绝合法新来源。有限表不等于完整抗无限来源轮换。
 * 移除账号采用 retirement，清空当前凭据密文并保留历史任务。历史/备份并非安全擦除；数据库和 key 都须受保护。
 
 ## 认证和请求
@@ -21,9 +21,9 @@ schema v1 包含 settings、sessions、accounts、jobs、confirmations。当前�
 ## 修改与可靠任务
 
 1. 确认读取当前云目录/实例身份，绑定账号 revision、地区、目标、全部配置、请求 ID 和用户输入的名称，生成 5 分钟一次性摘要令牌。
-2. 提交事务消费令牌、重新核对账号 revision/retirement、检查该账号无 unresolved job 并插入 encrypted intent。该确认期限指**入队时**；已入队任务执行前重新核实配置，不要求重新确认排队时间。
+2. 提交事务消费令牌、重新核对账号 revision/retirement、检查该账号无 unresolved job 并插入 encrypted intent。确认期限在入队时核验；未派发任务还有独立的 5 分钟等待/校验期限。恢复时取消 queued 并作废旧确认，running 仍变为 unknown。重新操作需要新请求 ID 和新的确认。
 3. 相同 ID 与规范化载荷返回既有任务；载荷不同返回冲突。前端在一次对话框内固定 intent ID，响应丢失也保留原 ID。
-4. worker 原子 claim queued→running，落盘后才允许出站。再次核对 live 参数及凭据 revision；Azure 全部计划 ID 在第一笔 PUT 前保存。
+4. worker 先取消过期或未来时间戳 queued；只有年龄有效的任务可以原子 claim queued→running，落盘后才允许出站。只读预检完成后及首个云写 HTTP 请求前再次检查有效期，以带单调时间的截止保护防时钟回拨延长授权。已启动的多步操作按原操作 context 完成，不因排队期限中断 Azure 后续依赖步骤。再次核对 live 参数及凭据 revision；Azure 全部计划 ID 在第一笔 PUT 前保存。
 5. AWS 使用任务 ID 作 ClientToken；DO/Linode 随创建提交 task tag；Azure 由摘要确定资源 ID，先检查不存在，绝不覆盖未知已有资源。
 6. 保存云端操作 ID/LRO 和关联资源后查询终态。AWS/Linode 没有可靠重启完成证据时只报告“请求受理”。Azure LRO 区分 AsyncOperation/Location 并遵守 Retry-After。DO action 完成后仍检查目标实例状态。
 7. 网络中断、响应不完整、部分 Azure 依赖成功、等待超时或恢复时的 running→unknown；永不自动重发已派发写请求。
@@ -37,4 +37,6 @@ schema v1 包含 settings、sessions、accounts、jobs、confirmations。当前�
 
 目前 AWS 为商业分区；没有实现中国/GovCloud 分区端点。AWS 使用已启用地区。生命周期通过官方公开 CSV / Markdown 自动刷新；未知来源、数据不可达或发行版未识别时标记 unknown，不能把 cloud available 等价为安全维护。Ubuntu ESM / Debian ELTS 不默认纳入普通维护。
 
-Go 内存与浏览器 DOM 中的短期明文不能保证物理清零，数据库与 master.key 同时泄露仍可解密。当前不提供 MFA、主密钥在线轮换或自动删除收费残留；这些边界需要正式审核确认，不能据此声称安全认证完成。
+Go 内存与浏览器 DOM 中的短期明文不能保证物理清零，数据库与 master.key 同时泄露仍可解密。Azure 删除关联原创建账本时重新核对同账号版本、当前 subscription/RG、完整资源 ID 与云端 `narbe-job` 标签；删除前持久化四个关联 ID 和来源任务，成功/失败/unknown 都保留。账本只说明来源，资源存在及费用未核实；无可信来源或多重来源时 unknown，不暴露未校验 ID，也不删除依赖。
+
+当前不提供 MFA、主密钥在线轮换或自动删除收费残留；这些边界需要正式审核确认，不能据此声称安全认证完成。

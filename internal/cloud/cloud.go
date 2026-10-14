@@ -65,15 +65,27 @@ type Spec struct {
 	Disk           int    `json:"disk"`
 	ManagementCIDR string `json:"managementCidr"`
 }
+type RelatedResource struct {
+	ID    string `json:"id"`
+	Kind  string `json:"kind"`
+	State string `json:"state"`
+}
+type ResourceLedger struct {
+	Status      string            `json:"status"`
+	SourceJobID string            `json:"sourceJobId,omitempty"`
+	SourceState string            `json:"sourceState,omitempty"`
+	Resources   []RelatedResource `json:"resources,omitempty"`
+}
 type Operation struct {
-	ResourceID string   `json:"resourceId"`
-	PollURL    string   `json:"pollUrl,omitempty"`
-	ActionID   string   `json:"actionId,omitempty"`
-	Region     string   `json:"region"`
-	Expected   string   `json:"expected"`
-	Owned      []string `json:"owned,omitempty"`
-	PollKind   string   `json:"pollKind,omitempty"`
-	NextPoll   int64    `json:"nextPoll,omitempty"`
+	ResourceID string          `json:"resourceId"`
+	PollURL    string          `json:"pollUrl,omitempty"`
+	ActionID   string          `json:"actionId,omitempty"`
+	Region     string          `json:"region"`
+	Expected   string          `json:"expected"`
+	Owned      []string        `json:"owned,omitempty"`
+	PollKind   string          `json:"pollKind,omitempty"`
+	NextPoll   int64           `json:"nextPoll,omitempty"`
+	Ledger     *ResourceLedger `json:"ledger,omitempty"`
 }
 type Provider interface {
 	Catalog(context.Context, string, string) (Catalog, error)
@@ -204,6 +216,9 @@ func Arch(a string) string {
 }
 func Family(s string) string {
 	s = strings.ToLower(s)
+	if (strings.HasPrefix(s, "al20") && strings.Contains(s, "-ami-")) || strings.HasPrefix(s, "amzn2-ami-") || strings.HasPrefix(s, "amzn-ami-") {
+		return "amazonlinux"
+	}
 	for _, f := range []string{"ubuntu", "debian", "windows", "rocky", "alma", "fedora", "centos"} {
 		if strings.Contains(s, f) {
 			return f
@@ -236,6 +251,11 @@ func (r rest) callHeaders(ctx context.Context, method, path string, body, out an
 	}
 	req.Header.Set("Authorization", "Bearer "+r.token)
 	req.Header.Set("Content-Type", "application/json")
+	if method != "GET" {
+		if e := beforeCloudWrite(ctx); e != nil {
+			return nil, e
+		}
+	}
 	resp, e := r.h.Do(req)
 	if e != nil {
 		return nil, &Error{Code: "网络中断，请核实云端结果", Uncertain: method != "GET"}

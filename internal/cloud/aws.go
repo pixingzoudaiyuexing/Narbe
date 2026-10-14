@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -56,6 +57,11 @@ func (a *AWS) call(ctx context.Context, region, action string, params url.Values
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
 	if e = v4.NewSigner().SignHTTP(ctx, sdk.Credentials{AccessKeyID: a.c["accessKeyId"], SecretAccessKey: a.c["secretAccessKey"], SessionToken: a.c["sessionToken"]}, req, digest([]byte(body)), "ec2", region, time.Now().UTC()); e != nil {
 		return &Error{Code: "AWS 请求签名失败"}
+	}
+	if !strings.HasPrefix(action, "Describe") {
+		if e := beforeCloudWrite(ctx); e != nil {
+			return e
+		}
 	}
 	resp, e := a.h.Do(req)
 	mut := !strings.HasPrefix(action, "Describe")
@@ -194,6 +200,12 @@ func (a *AWS) Catalog(ctx context.Context, region, plan string) (Catalog, error)
 		v.Set("Filter.4.Name", "architecture")
 		v.Set("Filter.4.Value.1", p.Architecture)
 	}
+	v.Set("Filter.5.Name", "name")
+	patterns := []string{"*ubuntu*", "*Ubuntu*", "*UBUNTU*", "*debian*", "*Debian*", "*DEBIAN*", "*windows*", "*Windows*", "*WINDOWS*", "*rocky*", "*Rocky*", "*ROCKY*", "*alma*", "*Alma*", "*ALMA*", "*fedora*", "*Fedora*", "*FEDORA*", "*centos*", "*CentOS*", "*CENTOS*", "al20??-ami-*", "amzn2-ami-*", "amzn-ami-*"}
+	for n, pattern := range patterns {
+		v.Set("Filter.5.Value."+strconv.Itoa(n+1), pattern)
+	}
+	seenTokens := map[string]bool{}
 	var imgs struct{ Items []awsImage }
 	v.Set("MaxResults", "1000")
 	for page := 0; page < 100; page++ {
@@ -208,6 +220,10 @@ func (a *AWS) Catalog(ctx context.Context, region, plan string) (Catalog, error)
 		if batch.Next == "" {
 			break
 		}
+		if seenTokens[batch.Next] {
+			return c, &Error{Code: "AWS 镜像分页游标重复，请稍后刷新"}
+		}
+		seenTokens[batch.Next] = true
 		v.Set("NextToken", batch.Next)
 		if page == 99 {
 			return c, &Error{Code: "AWS 镜像分页超限"}

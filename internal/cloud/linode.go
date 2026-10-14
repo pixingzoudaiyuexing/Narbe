@@ -139,6 +139,9 @@ func (l *Linode) Instances(ctx context.Context, region string) ([]Instance, erro
 	return out, nil
 }
 func (l *Linode) Create(ctx context.Context, s Spec, token string) (Operation, error) {
+	if e := ValidateLinodePassword(s.Password); e != nil {
+		return Operation{}, e
+	}
 	body := map[string]any{"label": s.Name, "region": s.Region, "type": s.Plan, "image": s.Image, "booted": true, "backups_enabled": s.Backups, "tags": []string{"narbe-" + token}}
 	if s.Password != "" {
 		body["root_pass"] = s.Password

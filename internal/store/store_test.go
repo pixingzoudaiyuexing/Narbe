@@ -93,7 +93,7 @@ func TestStartupNeverRequeuesRunningJobs(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer s.Close()
-	for id, want := range map[string]string{"running": "unknown", "queued": "queued"} {
+	for id, want := range map[string]string{"running": "unknown", "queued": "cancelled"} {
 		var got string
 		s.DB.QueryRow("SELECT state FROM jobs WHERE id=?", id).Scan(&got)
 		if got != want {
