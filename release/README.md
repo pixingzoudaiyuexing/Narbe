@@ -1,6 +1,6 @@
 # Narbe v0.1.0-beta.3 安装与使用
 
-这是 beta.3 测试预发布候选安装说明；发行配置正式复审及发布完成前，下方下载地址不可用。应用基线 `4f1c9cc2a7c8e099ab3c375548c48e691d87c72d` 已正式审核 PASS WITH CONDITIONS，发行代码另有独立复审SHA门禁。beta.1/beta.2保留，本版供Owner自行测试，不宣称生产稳定。支持 Linux AMD64 / ARM64、AWS / Azure / Linode / DigitalOcean，单个 Go + SQLite 容器。
+这是 beta.3 测试预发布安装说明。应用基线 `4f1c9cc2a7c8e099ab3c375548c48e691d87c72d` 已正式审核 PASS WITH CONDITIONS，发行配置基线 `e1955797433a1516ce1a850d7d2e707572af249e` 已针对性正式复审PASS，双SHA门禁分别核验应用与发行代码。beta.1/beta.2保留，本版供Owner自行测试，不宣称生产稳定。支持 Linux AMD64 / ARM64、AWS / Azure / Linode / DigitalOcean，单个 Go + SQLite 容器。
 
 需要已安装 Docker Engine 和 Docker Compose v2、Bash、curl、tar、sha256sum；服务器无需 Go、Node.js、MySQL 或 Redis。不会自动安装或改动系统 Docker。
 
@@ -59,7 +59,7 @@ docker compose --env-file .env --env-file image.env -f compose.yaml restart
 
 ## 测试版边界
 
-原六项安全修复、四云聚合和beta.3九项Linode高级管理已正式审核。新增发行配置须单独正式复审；不能把应用审核SHA当作发行脚本审核。包内release.json及release-evidence.json分别记录 `applicationReviewedSha`、`releaseReviewedSha`、`sourceSha` 与镜像digest；发行审核后只允许README/Notes文字后补，任何其他差异失败关闭。
+原六项安全修复、四云聚合和beta.3九项Linode高级管理已正式审核。新增发行配置已完成单独正式复审；应用审核SHA与发行脚本审核SHA分别记录。包内release.json及release-evidence.json分别记录 `applicationReviewedSha`、`releaseReviewedSha`、`sourceSha` 与镜像digest；发行审核后只允许README/Notes文字后补，任何其他差异失败关闭。
 
 支持动态地区、规格和系统镜像查询，已有实例查询、创建及生命周期管理。云厂商差异、计费、配额及权限必须由 Owner 自行验证。
 
@@ -73,7 +73,7 @@ docker compose --env-file .env --env-file image.env -f compose.yaml restart
 
 版本、发布提交、应用审核SHA、发行审核SHA、index与两个平台manifest digest记录在 `release.json` 和 Release 附件 `release-evidence.json`。
 
-## beta.2 无损升级到 beta.3（正式发布后执行）
+## beta.2 无损升级到 beta.3
 
 先在原安装目录停止服务，再完整备份 `narbe_narbe_data` Volume（SQLite及master.key必须一起备份，备份文件妥善保密）。不要运行 `down -v`。在新的beta.3目录下载、校验安装包；以下示例假设beta.2旧目录为同级 `narbe-beta`（如你的目录为narbe-beta2，请替换三个旧路径），复制既有配置与密码文件：
 

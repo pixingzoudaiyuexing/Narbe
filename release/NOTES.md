@@ -1,6 +1,6 @@
 # Narbe v0.1.0-beta.3 — Linode高级管理与四云地区分组
 
-测试预发布说明；应用基线 `4f1c9cc2a7c8e099ab3c375548c48e691d87c72d` 已正式审核 PASS WITH CONDITIONS。发行配置正在针对性复审，批准前不创建beta.3 Tag或推送正式GHCR版本。最终发布后，release-evidence.json记录实际发布提交、应用审核SHA、发行审核SHA和不可变digest。beta.1/beta.2保留，不推送latest。
+这是已批准的测试预发布版本。应用基线 `4f1c9cc2a7c8e099ab3c375548c48e691d87c72d` 已正式审核 PASS WITH CONDITIONS。发行配置 `e1955797433a1516ce1a850d7d2e707572af249e` 已由原Independent Reviewer针对性复审PASS。release-evidence.json记录实际发布提交、应用审核SHA、发行审核SHA和不可变digest。beta.1/beta.2保留，不推送latest。
 
 本版新增：
 
@@ -28,4 +28,4 @@ Go + SQLite、单个非root轻量容器，Linux AMD64/ARM64原生构建和镜像
 - 四云真实创建/删除E2E与原CloudPanel完整覆盖仍有证据缺口。
 - Azure删除VM后关联磁盘、公网IP等可能继续计费。
 
-当前版本供自行部署和测试，不是生产稳定版。安装与beta.2无损升级说明见安装包README；正式附件须来自成功发布工作流，并经匿名下载、SHA-256、GHCR回拉与实际安装/升级验证后才可宣布完整交付。
+当前版本供自行部署和测试，不是生产稳定版。安装与beta.2无损升级说明见安装包README；正式附件来自成功发布工作流；实际发行与验证证据见Release及release-evidence.json。
