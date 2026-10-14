@@ -1,6 +1,6 @@
-# Narbe v0.1.0-beta.2 安装与使用
+# Narbe v0.1.0-beta.3 安装与使用
 
-这是 beta.2 公开测试版安装说明。正式独立审核基线 `e7aaadef8cf1e34a08b9b345fc3e8ba3970b6c72` 已获 PASS WITH CONDITIONS — RELEASE APPROVED；发布工作流核对受保护代码与审核SHA一致，并原生验证两个架构。已发布 beta.1 不变。本版供 Owner 自行接入云账号测试，不宣称生产稳定。支持 Linux AMD64 / ARM64、AWS / Azure / Linode / DigitalOcean，单个 Go + SQLite 容器。
+这是 beta.3 测试预发布候选安装说明；发行配置正式复审及发布完成前，下方下载地址不可用。应用基线 `4f1c9cc2a7c8e099ab3c375548c48e691d87c72d` 已正式审核 PASS WITH CONDITIONS，发行代码另有独立复审SHA门禁。beta.1/beta.2保留，本版供Owner自行测试，不宣称生产稳定。支持 Linux AMD64 / ARM64、AWS / Azure / Linode / DigitalOcean，单个 Go + SQLite 容器。
 
 需要已安装 Docker Engine 和 Docker Compose v2、Bash、curl、tar、sha256sum；服务器无需 Go、Node.js、MySQL 或 Redis。不会自动安装或改动系统 Docker。
 
@@ -10,10 +10,10 @@
 
 ```bash
 mkdir -p narbe-beta && cd narbe-beta
-curl -fL --retry 3 -o narbe-v0.1.0-beta.2-install.tar.gz https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.2/narbe-v0.1.0-beta.2-install.tar.gz
-curl -fL --retry 3 -o SHA256SUMS https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.2/SHA256SUMS
+curl -fL --retry 3 -o narbe-v0.1.0-beta.3-install.tar.gz https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.3/narbe-v0.1.0-beta.3-install.tar.gz
+curl -fL --retry 3 -o SHA256SUMS https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.3/SHA256SUMS
 sha256sum -c SHA256SUMS
-tar -xzf narbe-v0.1.0-beta.2-install.tar.gz
+tar -xzf narbe-v0.1.0-beta.3-install.tar.gz
 ./install.sh
 ```
 
@@ -59,20 +59,23 @@ docker compose --env-file .env --env-file image.env -f compose.yaml restart
 
 ## 测试版边界
 
-beta.1 的六项审核问题已修复并正式复审PASS。本轮新增四云资源总览、中文地区、规格/价格说明和HTTP弹窗修复已完成正式独立审核（PASS WITH CONDITIONS — RELEASE APPROVED）。确切构建与审核SHA记录在release.json；发布后的文档提交仅允许README/Notes文字差异，不修改已审核应用或可执行包装。
+原六项安全修复、四云聚合和beta.3九项Linode高级管理已正式审核。新增发行配置须单独正式复审；不能把应用审核SHA当作发行脚本审核。包内release.json及release-evidence.json分别记录 `applicationReviewedSha`、`releaseReviewedSha`、`sourceSha` 与镜像digest；发行审核后只允许README/Notes文字后补，任何其他差异失败关闭。
 
 支持动态地区、规格和系统镜像查询，已有实例查询、创建及生命周期管理。云厂商差异、计费、配额及权限必须由 Owner 自行验证。
 
-* 四云真实创建/删除E2E尚未完成，Mock和本地Docker成功不等于真实云验证。
+* 九项Linode高级功能尚未通过真实云端完整E2E；四云真实创建/删除亦未完成，Mock和Docker成功不能替代。
+* 新建Linode默认明确不绑定云防火墙、全部放行，不等于OS防火墙关闭；不改账户全局策略。
+* 重装清除原本地磁盘/配置；克隆新增收费实例且要求源关机；迁移可能停机/换IP，不自动更新DNS。
+* 附加Volume、VPC/VLAN及托管关系等有保守限制，不自动删盘/脱离网络。
 * 原CloudPanel完整功能覆盖仍有证据缺口。
 * Azure删除只删除VM，磁盘、网卡、NSG、公网IP可能保留并继续产生部分费用。任务账本只确认来源，不证明资源当前存在或费用已停止；需到控制台核实。
 * 重启取消尚未派发的任务；未派发任务等待/校验最多5分钟。结果未知的已派发操作不会自动重放。
 
-版本、构建SHA、index与两个平台manifest digest记录在 `release.json` 和 Release 附件 `release-evidence.json`。
+版本、发布提交、应用审核SHA、发行审核SHA、index与两个平台manifest digest记录在 `release.json` 和 Release 附件 `release-evidence.json`。
 
-## beta.1 无损升级到 beta.2
+## beta.2 无损升级到 beta.3（正式发布后执行）
 
-先在原安装目录停止服务，再完整备份 `narbe_narbe_data` Volume（SQLite及master.key必须一起备份，备份文件妥善保密）。不要运行 `down -v`。在新的beta.2目录下载、校验安装包；以下示例假设旧目录为同级 `narbe-beta`，复制既有配置与密码文件：
+先在原安装目录停止服务，再完整备份 `narbe_narbe_data` Volume（SQLite及master.key必须一起备份，备份文件妥善保密）。不要运行 `down -v`。在新的beta.3目录下载、校验安装包；以下示例假设beta.2旧目录为同级 `narbe-beta`（如你的目录为narbe-beta2，请替换三个旧路径），复制既有配置与密码文件：
 
 ```bash
 (
@@ -87,11 +90,11 @@ cp .env "$backup_dir/deploy.env"
 mkdir -m 700 "$backup_dir/secrets"
 cp secrets/admin-password "$backup_dir/secrets/admin-password"
 cd ..
-mkdir -p narbe-beta2 && cd narbe-beta2
-curl -fL --retry 3 -o narbe-v0.1.0-beta.2-install.tar.gz https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.2/narbe-v0.1.0-beta.2-install.tar.gz
-curl -fL --retry 3 -o SHA256SUMS https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.2/SHA256SUMS
+mkdir -m 700 narbe-beta3 && cd narbe-beta3
+curl -fL --retry 3 -o narbe-v0.1.0-beta.3-install.tar.gz https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.3/narbe-v0.1.0-beta.3-install.tar.gz
+curl -fL --retry 3 -o SHA256SUMS https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.3/SHA256SUMS
 sha256sum -c SHA256SUMS
-tar -xzf narbe-v0.1.0-beta.2-install.tar.gz
+tar -xzf narbe-v0.1.0-beta.3-install.tar.gz
 cp ../narbe-beta/.env .env
 mkdir -m 700 secrets
 cp ../narbe-beta/secrets/admin-password secrets/admin-password

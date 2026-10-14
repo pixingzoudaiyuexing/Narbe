@@ -22,6 +22,8 @@ jobs:
       - run: go vet ./...
       - run: go test -race ./... -count=1
       - run: python3 scripts/test_build.py
+      - run: python3 release/test_verify_source.py
+      - run: python3 release/test_bundle.py
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - run: npm ci --ignore-scripts
       - run: npx prettier --check internal/web/assets scripts/browser-test.mjs scripts/browser-regressions.mjs scripts/browser-linode.mjs scripts/format-test.mjs
