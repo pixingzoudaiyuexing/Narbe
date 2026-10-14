@@ -238,7 +238,9 @@ func (a *AWS) scanInventory(ctx context.Context, retry string, previous Inventor
 		warning bool
 	}
 	tasks := make(chan Choice, len(work))
-	results := make(chan result, len(work))
+	// Backpressure keeps at most one completed result per worker in memory.
+	// A buffered channel sized by all regions could retain every large response.
+	results := make(chan result)
 	for _, r := range work {
 		tasks <- r
 	}

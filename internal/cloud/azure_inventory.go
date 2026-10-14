@@ -90,7 +90,7 @@ func (a *Azure) scanInventory(ctx context.Context, retry string, previous Invent
 		warning bool
 	}
 	tasks := make(chan string, len(grouped))
-	results := make(chan result, len(grouped))
+	results := make(chan result)
 	for region := range grouped {
 		tasks <- region
 	}
