@@ -23,6 +23,7 @@ const errors = [],
   confirms = [],
   jobs = [];
 page.on("pageerror", (e) => errors.push(e.message));
+let addedDuplicateAccount = false;
 let provider = "linode",
   generation = "legacy_config",
   instanceState = "offline";
@@ -247,6 +248,23 @@ await page.route("**/*", async (route) => {
     method: req.method(),
   });
   try {
+    if (req.method() === "POST" && path === "accounts") {
+      const value = req.postDataJSON();
+      assert.equal(value.provider, "linode");
+      assert.equal(value.name, "高级管理测试账号");
+      addedDuplicateAccount = true;
+      await route.fulfill({
+        status: 201,
+        json: {
+          id: "fixture-new",
+          name: value.name,
+          provider: "linode",
+          revision: 3,
+          created: 1780000001,
+        },
+      });
+      return;
+    }
     if (req.method() !== "GET") {
       assert.equal(
         req.method(),
@@ -298,6 +316,17 @@ await page.route("**/*", async (route) => {
           revision: 3,
           created: 1780000000,
         },
+        ...(addedDuplicateAccount
+          ? [
+              {
+                id: "fixture-new",
+                name: "高级管理测试账号",
+                provider: "linode",
+                revision: 3,
+                created: 1780000001,
+              },
+            ]
+          : []),
       ];
     else if (path === "jobs") body = jobResponses;
     else if (path === "inventory")
@@ -1112,6 +1141,25 @@ try {
   }
   jobResponses = [];
   instanceOverrides = {};
+  await fresh();
+  await page.locator('[data-nav="accounts"]').click();
+  await page.locator("#add-account").click();
+  const addForm = page.locator("#account-form");
+  await addForm.locator('[name="provider"]').selectOption("linode");
+  await addForm.locator('[name="name"]').fill("高级管理测试账号");
+  await addForm.locator('[name="token"]').fill("fixture-browser-nonreal-token");
+  const permissionRead = page.waitForRequest(
+    (r) => new URL(r.url()).searchParams.get("view") === "permissions",
+  );
+  await addForm.locator('[type="submit"]').click();
+  const permission = await permissionRead;
+  assert.equal(
+    new URL(permission.url()).searchParams.get("accountId"),
+    "fixture-new",
+    "duplicate names must not route permission check to previous account",
+  );
+  await dialog.getByRole("heading", { name: "Linode权限检查" }).waitFor();
+  await close();
   assert.deepEqual(errors, [], "Browser/fixture errors occurred");
   console.log(
     JSON.stringify({

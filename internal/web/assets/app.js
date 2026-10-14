@@ -675,13 +675,12 @@ function accountDialog(acc) {
   form.onsubmit = (e) => {
     e.preventDefault();
     formAction(form, async () => {
-      const savedName = form.elements.name.value;
       const credentials = {};
       if (!acc || form.rotate.checked) {
         for (const [k] of credentialFields[provider])
           if (form.elements[k].value) credentials[k] = form.elements[k].value;
       }
-      await api("accounts" + (acc ? "/" + acc.id : ""), {
+      const savedAccount = await api("accounts" + (acc ? "/" + acc.id : ""), {
         method: acc ? "PUT" : "POST",
         body: {
           name: form.elements.name.value,
@@ -697,9 +696,7 @@ function accountDialog(acc) {
       toast("云账号已保存");
       if (provider === "linode") {
         const saved = state.accounts.find(
-          (a) =>
-            a.id ===
-            (acc?.id || state.accounts.find((a) => a.name === savedName)?.id),
+          (a) => a.id === (acc?.id || savedAccount.id),
         );
         if (saved) showLinodePermissions(saved);
       }
