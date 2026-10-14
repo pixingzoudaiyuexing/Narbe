@@ -23,7 +23,7 @@
 
 成品工作台的局部增强：普通用户从云账号进入服务器总览，先判断资源数量与数据完整性，再按地区/状态/名称/IP定位；创建使用现有表单，重点配置在前、高级设置折叠，提交前展示摘要，危险操作仍名称确认。桌面/手机均保留搜索、筛选、刷新、错误及重试。沿用当前CSS/原生模块，不引入图表或前端运行时。
 
-账号总览异步只读扫描：进程内最多8个缓存账号、全局2个扫描；AWS每扫描3个并发地区，每地区15秒，整体90秒，最多100个地区和5000条展示实例；60秒缓存，手动刷新至少间隔15秒。缓存绑定account ID和凭据revision，不写入本地任务代替真实资源。失败地区可单独重试；账号级接口失败需重试账号范围。缓存不可作为管理操作授权，确认/worker仍读取实时身份。
+账号总览异步只读扫描：进程内最多8个缓存账号、全局2个扫描；AWS每扫描3个并发地区，每地区15秒，整体90秒，最多100个地区和5000条展示实例；ready缓存从完成起60秒，局部重试继承首次全量完成锚点，过期强制全量；手动刷新至少间隔15秒。浏览器仅保留当前账号完整明细，其余账号保留摘要。缓存绑定account ID和凭据revision，不写入本地任务代替真实资源。失败地区可单独重试；账号级接口失败需重试账号范围。缓存不可作为管理操作授权，确认/worker仍读取实时身份。
 
 AWS只汇总已启用且访问成功的EC2地区；无权/超时/限速地区明确失败，不从分母消失。Azure只声明当前接入资源组，不能冒充整个订阅。Linode/DO账号级分页，完整查询后才能确认零台。
 
@@ -32,3 +32,5 @@ AWS只汇总已启用且访问成功的EC2地区；无权/超时/限速地区明
 正式独立审核 REQUIRED；完成实现和证据后交上游安排，未通过前不创建beta.2 Tag、不发布beta.2镜像、不合并main、不更改Owner网络配置。
 
 状态与计费说明核对：AWS https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-lifecycle.html；Azure https://learn.microsoft.com/en-us/azure/virtual-machines/states-billing；Linode https://techdocs.akamai.com/linode-api/reference/get-linode-instance；DO https://docs.digitalocean.com/products/droplets/reference/api/droplets/ 。服务器电源状态与任务状态使用独立中文标签，Azure provisioning succeeded 不冒充运行中。
+
+Azure inventory 可选 NIC/PIP 读取失败保留已确认 VM 及数量、警告网络信息不完整；实时管理预检仍严格读取，不允许显示容错削弱权限校验。

@@ -50,7 +50,10 @@ with tempfile.TemporaryDirectory(prefix='narbe-upgrade-') as tmp:
         backup.mkdir(mode=0o700)
         compose('cp','narbe:/data',str(backup/'data'))
         key=hashlib.sha256((backup/'data/master.key').read_bytes()).hexdigest()
-        db=sqlite3.connect('file:'+str(backup/'data/narbe.db')+'?mode=ro',uri=True)
+        # This is a private stopped-container COPY, never the source volume.
+        # Allow SQLite to create WAL/SHM sidecars (macOS cannot open this WAL
+        # database read-only when those files do not yet exist).
+        db=sqlite3.connect('file:'+str(backup/'data/narbe.db')+'?mode=rw',uri=True)
         settings=db.execute('SELECT key,value FROM settings ORDER BY key').fetchall()
         accounts=db.execute('SELECT id,provider,credentials,revision,retired FROM accounts ORDER BY id').fetchall()
         db.close()
