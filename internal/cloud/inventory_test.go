@@ -28,6 +28,16 @@ func TestRegionLabelsPreserveIDsAndUnknownOfficialNames(t *testing.T) {
 	}
 }
 
+func TestInventoryFailureScopesAreNotCountedTwice(t *testing.T) {
+	v := EmptyInventory("fixture")
+	v.Phase = "ready"
+	v.Failures = []RegionFailure{{Region: "eu-west-1", Message: "previous attempt"}, {Region: "eu-west-1", Message: "region no longer enabled"}, {Region: "*", Message: "bad row"}, {Region: "*", Message: "another bad row"}}
+	v.summarize("aws")
+	if v.Complete || len(v.Failures) != 2 || v.Failures[0].Message != "region no longer enabled" {
+		t.Fatal(v.Failures)
+	}
+}
+
 func TestAWSInventoryPaginationPartialFailureRetryAndBoundedConcurrency(t *testing.T) {
 	var mu sync.Mutex
 	counts := map[string]int{}

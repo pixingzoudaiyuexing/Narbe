@@ -11,8 +11,9 @@ import (
 const InventoryLimit = 5000
 
 type RegionFailure struct {
-	Region  string `json:"region"`
-	Message string `json:"message"`
+	Region     string `json:"region"`
+	Message    string `json:"message"`
+	RegionName string `json:"regionName,omitempty"`
 }
 type InventoryStats struct {
 	Total   int `json:"total"`
@@ -102,6 +103,26 @@ func (v *Inventory) summarize(provider string) {
 	}
 	v.Items = items
 	v.Stats.Total = len(items)
+	// Retry history and multiple malformed rows may refer to the same scope.
+	// Count failed scopes, not accumulated error events, retaining the newest reason.
+	failures := []RegionFailure{}
+	positions := map[string]int{}
+	for _, f := range v.Failures {
+		if f.Region != "*" {
+			if name := names[f.Region]; name != "" {
+				f.RegionName = name
+			} else {
+				f.RegionName = RegionLabel(provider, f.Region, "")
+			}
+		}
+		if pos, exists := positions[f.Region]; exists {
+			failures[pos] = f
+		} else {
+			positions[f.Region] = len(failures)
+			failures = append(failures, f)
+		}
+	}
+	v.Failures = failures
 	sort.Slice(v.Items, func(i, j int) bool {
 		a, b := v.Items[i], v.Items[j]
 		if a.Region != b.Region {
