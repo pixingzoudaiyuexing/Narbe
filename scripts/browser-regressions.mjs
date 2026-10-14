@@ -19,6 +19,7 @@ const dir = process.env.NARBE_SCREENSHOT_DIR || "test-results";
 fs.mkdirSync(dir, { recursive: true });
 let provider = "linode",
   bulk = 0,
+  catalogFail = false,
   partial = false,
   fail = false,
   delayRegion = "",
@@ -148,6 +149,11 @@ await page.route("**/api/**", async (route) => {
     };
   } else if (path === "catalog") {
     const r = u.searchParams.get("region");
+    if (catalogFail && r)
+      return route.fulfill({
+        status: 503,
+        json: { error: "配置查询暂不可用" },
+      });
     if (r && r === delayRegion) {
       delayRegion = "";
       delayedCatalog();
@@ -269,6 +275,19 @@ try {
     await f
       .locator("[name=plan] option[value=p]")
       .waitFor({ state: "attached" });
+    if (provider === "aws") {
+      catalogFail = true;
+      await f.locator("#retry-catalog").click();
+      await f
+        .locator(".error-box")
+        .getByText("配置查询暂不可用", { exact: true })
+        .waitFor();
+      catalogFail = false;
+      await f.locator("#retry-catalog").click();
+      await f
+        .locator("[name=plan] option[value=p]")
+        .waitFor({ state: "attached" });
+    }
     await f.locator("[name=plan]").selectOption("p");
     await f.locator("[name=image]").selectOption("im");
     if (["linode", "digitalocean"].includes(provider))
@@ -379,6 +398,10 @@ try {
       "当前总数未确认",
     ),
   );
+  assert.ok(
+    (await page.locator(".inventory-summary").innerText()).includes("上次查询"),
+    "transport failure must label retained rows as old data",
+  );
   fail = false;
   await page.locator("#refresh").click();
   await page.locator("td .name").nth(1).waitFor();
@@ -398,6 +421,19 @@ try {
     "old account request populated another account",
   );
   assert.equal(await page.locator("#account").inputValue(), "other");
+  const reentering = new Promise((yes) => {
+    delayedInventory = yes;
+  });
+  delayInventory = true;
+  await page.locator("#account").selectOption("fixture");
+  await reentering;
+  assert.equal(
+    await page.locator("td .name").count(),
+    0,
+    "previously selected account details must be discarded rather than retained without bound",
+  );
+  releaseInventory();
+  await page.locator("td .name").nth(1).waitFor();
   bulk = 123;
   await page.reload();
   await page.getByText("共 123 台服务器", { exact: true }).waitFor();
@@ -431,7 +467,9 @@ try {
   await page.locator("td .name").first().waitFor();
   await page.locator("#create").click();
   await page
-    .getByText("浏览器不支持安全随机标识，请升级浏览器后重试", { exact: true })
+    .getByText("浏览器功能不兼容，暂时无法提交操作。请升级浏览器后重试", {
+      exact: true,
+    })
     .waitFor();
   assert.equal(
     await page.locator("#create-form").count(),

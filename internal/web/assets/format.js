@@ -9,7 +9,7 @@ export function configLabel(value, provider) {
     disk =
       value.disk > 0
         ? `${value.disk} GB 实例存储；EBS 系统盘另计`
-        : "EBS 系统盘独立计费，容量另选";
+        : "EBS 系统盘独立计费，容量未确认";
   else if (provider === "azure")
     disk =
       value.disk > 0
@@ -42,7 +42,9 @@ export function stateGroup(state) {
     return "stopped";
   return "other";
 }
-export function serverStateLabel(state) {
+export function serverStateLabel(state, provider = "") {
+  if (provider === "azure" && state === "stopped")
+    return "已关机（计算仍计费）";
   const labels = {
     running: "运行中",
     active: "运行中",

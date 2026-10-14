@@ -326,7 +326,7 @@ func (a *AWS) Instances(ctx context.Context, region string) ([]Instance, error) 
 				}
 				name := v.ID
 				for _, t := range v.Tags {
-					if t.Key == "Name" {
+					if t.Key == "Name" && strings.TrimSpace(t.Value) != "" {
 						name = t.Value
 					}
 				}

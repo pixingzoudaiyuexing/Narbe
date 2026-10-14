@@ -51,6 +51,12 @@ func ReadError(err error) string {
 	}
 	var ce *Error
 	if errors.As(err, &ce) {
+		if strings.Contains(ce.Code, "超限") || strings.Contains(ce.Code, "安全上限") {
+			return "资源或分页超过本次安全查询上限，总数尚未确认；请到云控制台核实"
+		}
+		if strings.Contains(ce.Code, "分页") || strings.Contains(ce.Code, "列表响应") {
+			return "云端分页响应异常，总数尚未确认，请稍后重试"
+		}
 		switch {
 		case ce.Status == 401 || ce.Status == 403:
 			return "云账号权限不足或凭据已失效，请检查云控制台"

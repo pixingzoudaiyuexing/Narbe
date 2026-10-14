@@ -66,3 +66,6 @@ console.log(
 assert.equal(serverStateLabel("billing_suspension"), "欠费暂停");
 assert.equal(serverStateLabel("succeeded"), "资源就绪，电源状态未确认");
 assert.equal(serverStateLabel("future-state"), "其他状态（future-state）");
+
+assert.equal(serverStateLabel("stopped", "azure"), "已关机（计算仍计费）");
+assert.equal(serverStateLabel("stopped", "aws"), "已关机");

@@ -256,7 +256,7 @@ func (a *Azure) Instances(ctx context.Context, region string) ([]Instance, error
 		if region != "" && region != v.Location {
 			continue
 		}
-		i, e := a.hydrateVM(ctx, v)
+		i, e := a.hydrateVM(ctx, v, false)
 		if e != nil {
 			return nil, e
 		}
@@ -264,7 +264,10 @@ func (a *Azure) Instances(ctx context.Context, region string) ([]Instance, error
 	}
 	return out, nil
 }
-func (a *Azure) hydrateVM(ctx context.Context, v azVM) (Instance, error) {
+
+// optionalNetwork is used only by the display inventory. Fresh mutation preflight
+// always passes false and retains the previous strict error behavior.
+func (a *Azure) hydrateVM(ctx context.Context, v azVM, optionalNetwork bool) (Instance, error) {
 	var full azVM
 	if e := a.call(ctx, "GET", v.ID+"?$expand=instanceView&api-version=2024-07-01", nil, &full); e != nil {
 		return Instance{}, e
@@ -290,6 +293,10 @@ func (a *Azure) hydrateVM(ctx context.Context, v azVM) (Instance, error) {
 			}
 		}
 		if e := a.call(ctx, "GET", nic.ID+"?api-version=2024-05-01", nil, &n); e != nil {
+			if optionalNetwork {
+				i.MetadataIncomplete = true
+				continue
+			}
 			return Instance{}, e
 		}
 		for _, conf := range n.Properties.Configurations {
@@ -300,6 +307,10 @@ func (a *Azure) hydrateVM(ctx context.Context, v azVM) (Instance, error) {
 					}
 				}
 				if e := a.call(ctx, "GET", conf.Properties.Public.ID+"?api-version=2024-05-01", nil, &ip); e != nil {
+					if optionalNetwork {
+						i.MetadataIncomplete = true
+						continue
+					}
 					return Instance{}, e
 				}
 				if ip.Properties.Address != "" {

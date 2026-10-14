@@ -37,6 +37,17 @@ func TestInventoryFailureScopesAreNotCountedTwice(t *testing.T) {
 		t.Fatal(v.Failures)
 	}
 }
+func TestInventoryLimitErrorsAreActionableWithoutRawDetails(t *testing.T) {
+	for _, code := range []string{"AWS 实例数量超限，不能确认总数", "分页超过安全上限 fixture-secret"} {
+		msg := ReadError(&Error{Code: code})
+		if !strings.Contains(msg, "安全查询上限") || strings.Contains(msg, "fixture-secret") {
+			t.Fatal(msg)
+		}
+	}
+	if !strings.Contains(ReadError(&Error{Code: "列表响应缺少数据 fixture-secret"}), "分页响应异常") {
+		t.Fatal("malformed response not explained")
+	}
+}
 
 func TestAWSInventoryPaginationPartialFailureRetryAndBoundedConcurrency(t *testing.T) {
 	var mu sync.Mutex

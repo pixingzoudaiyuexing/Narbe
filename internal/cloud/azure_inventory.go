@@ -101,19 +101,22 @@ func (a *Azure) scanInventory(ctx context.Context, retry string, previous Invent
 				sub, cancel := context.WithTimeout(ctx, 20*time.Second)
 				items := []Instance{}
 				var err error
+				warn := false
 				for _, vm := range grouped[region] {
 					if len(items) >= InventoryLimit {
 						err = &Error{Code: "资源数量超限"}
 						break
 					}
 					var i Instance
-					i, err = a.hydrateVM(sub, vm)
+					i, err = a.hydrateVM(sub, vm, true)
 					if err != nil {
 						break
 					}
 					items = append(items, i)
+					if i.MetadataIncomplete {
+						warn = true
+					}
 				}
-				warn := false
 				if err == nil && len(items) > 0 {
 					var skus []azureSKU
 					e := a.list(sub, a.prefix()+"/providers/Microsoft.Compute/skus?api-version=2021-07-01&$filter="+url.QueryEscape("location eq '"+region+"'"), &skus)
@@ -167,7 +170,7 @@ func (a *Azure) scanInventory(ctx context.Context, retry string, previous Invent
 			}
 		}
 		if r.warning {
-			v.Warnings = append(v.Warnings, RegionLabel("azure", r.region, "")+"：部分配置未确认，实例数量不受影响")
+			v.Warnings = append(v.Warnings, RegionLabel("azure", r.region, "")+"：部分配置或网络信息未确认，实例数量不受影响；管理操作仍需实时读取权限")
 		}
 		v.summarize("azure")
 		report(v)
