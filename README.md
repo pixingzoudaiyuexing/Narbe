@@ -2,15 +2,13 @@
 
 轻量、中文优先的单用户多云服务器工作台。Go + SQLite + 内嵌 Web，单个非 root Docker 容器，无 MySQL、Redis 或前端运行时。
 
-**当前为第一阶段候选实现，正式独立审核待完成。** 四云适配器有自动化 HTTP 合同测试，Web 流程使用真实浏览器和真实应用/数据库验证、云端使用测试替身。没有真实云账号 E2E 证据。旧 CloudPanel 官方镜像不可达，不能声称已证明全部旧版功能覆盖。详见 [覆盖与缺口](docs/COVERAGE.md) 和 [验证报告](docs/VALIDATION.md)。
+**已发布版本为 [v0.1.0-beta.2](https://github.com/pixingzoudaiyuexing/Narbe/releases/tag/v0.1.0-beta.2)**，正式审核结论为PASS WITH CONDITIONS — RELEASE APPROVED，双架构GHCR镜像及完整安装/升级已验证。测试版不宣称生产稳定；真实四云创建/删除E2E与旧CloudPanel完整功能覆盖仍有缺口。
 
-> 本分支正在开发 `v0.1.0-beta.2`：四云全区域总览、中文地区、配置/价格说明与HTTP弹窗修复。**正式独立审核待完成，beta.2尚未发布**；当前公开版本仍为 [beta.1](https://github.com/pixingzoudaiyuexing/Narbe/releases/tag/v0.1.0-beta.1)。
+> 本分支新增 `v0.1.0-beta.3` 候选：Linode九项高级管理、流量/监控/账单/防火墙，以及四云地区大洲分组。**本轮正式独立审核 REQUIRED / PENDING；beta.3未发布，不合并main。** 覆盖矩阵、范围限制和截图见 [候选交付](docs/BETA3_DELIVERY.md)。beta.2原Tag和镜像保留。
 
-## 首个公开测试版本
+## 已发布测试版安装
 
-Owner 已确认应用提交 `5ffbf3479ad1e079b4b35efcaae837ecf08f2b3b` 正式独立复审PASS，六项Finding全部关闭。本轮提供 `v0.1.0-beta.1`，不等同真实云E2E和完整旧版覆盖最终验收，也不宣称生产稳定。
-
-无需服务器编译源码的GHCR安装包与说明见 [测试版安装](release/README.md)。发布安装包将版本锁定到准确digest，不使用latest；开发构建流程仍保留在下文。
+从 [beta.2 Release](https://github.com/pixingzoudaiyuexing/Narbe/releases/tag/v0.1.0-beta.2) 下载官方安装包，服务器无需编译源码。版本与digest固定，不使用latest。安装/无损升级见 [发布说明](release/README.md)；下文仍保留源码开发流程。
 
 ## 安装
 
@@ -42,7 +40,7 @@ NARBE_GOPROXY=https://goproxy.cn,direct ./scripts/start.sh
 ## 使用
 
 1. 登录，在「云账号」中选择厂商，填写账号备注和凭据。保存时验证认证后的资源读取权限；公共地区列表不能证明凭据有效。
-2. 进入「服务器」，刷新目录、选择地区、查询账号中的实例及公网 IP。
+2. 进入「服务器」默认查询全部地区，按账号、中文地区、状态、名称或IP筛选；地区选择按大洲分组。
 3. 创建时从官方目录选择规格和镜像。填写登录方式、网络等厂商特有配置，重新输入服务器名称后确认费用。
 4. 实例操作依当前状态展示。删除、开关机、重启都需核实目标名称；删除无法撤销。
 5. 在「操作任务」查看进度。等待中的任务可取消；已提交的云操作无法通过关闭浏览器撤销。

@@ -1,3 +1,7 @@
+当前 beta.3（Linode高级管理与四云大洲分组）的正式独立审核 REQUIRED / PENDING。beta.2已正式审核并发布，其PASS不覆盖本轮新增功能。九项能力、内部复核、测试和真实云缺口见 [BETA3_DELIVERY.md](BETA3_DELIVERY.md)。beta.3未发布；本轮不修改release可执行文件或发布beta.2变量，不能复用旧审核SHA发布新代码。
+
+以下为历史记录，历史PENDING/PASS各自只对应原基线。
+
 当前 beta.2 四云UX改进的正式独立审核 REQUIRED / PENDING；之前beta.1的PASS只覆盖其已审核提交，不能沿用为本轮PASS。发布工作流在 `NARBE_BETA2_REVIEWED_SHA` 未经上游正式审核后设置前跳过构建/发布；非发布成功。
 
 Owner 本轮 BETA RELEASE DELIVERY 已确认应用提交 `5ffbf3479ad1e079b4b35efcaae837ecf08f2b3b` 正式复审PASS，六项Finding全部关闭。以下内容保留历史内部审查过程；不能把历史PENDING当作当前应用审核状态。发布仅允许打包/版本/工作流/文档，应用与安全运行配置保持已审核基线。
