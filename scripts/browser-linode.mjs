@@ -31,7 +31,8 @@ let jobResponses = [],
   instanceOverrides = {};
 let billingDenied = false,
   unknownBilling = false,
-  emptyStats = false;
+  emptyStats = false,
+  zeroStats = false;
 let failView = "",
   emptyView = "",
   delayedView = "",
@@ -156,6 +157,7 @@ function stats(period) {
         [1760000300000, 70],
         [1760000600000, 40],
       ];
+  if (zeroStats) for (const point of points) point[1] = 0;
   return {
     source: "Linode Stats API",
     queriedAt: 1780000000,
@@ -741,6 +743,14 @@ try {
   assert.doesNotMatch(await dialog.innerText(), /0\s*%/);
   await screenshot("monitoring-empty");
   emptyStats = false;
+  zeroStats = true;
+  await dialog.locator("[data-query]").click();
+  await dialog.locator(".metric-chart svg").first().waitFor();
+  assert.match(
+    await dialog.locator(".metric-chart").first().innerText(),
+    /最大 0 %/,
+  );
+  zeroStats = false;
   await dialog
     .locator("[data-period]")
     .fill(new Date().toISOString().slice(0, 7));

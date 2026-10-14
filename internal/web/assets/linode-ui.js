@@ -248,14 +248,16 @@ function chart(series) {
     height = 130,
     min = points[0][0],
     span = points.at(-1)[0] - min || 1,
-    max = Math.max(...points.map((p) => p[1]), 1);
+    max = Math.max(...points.map((p) => p[1])),
+    scale = Math.max(max, 1);
   const step = Math.max(1, Math.ceil(points.length / 600));
   const shown = points.filter(
     (_, i) => i % step === 0 || i === points.length - 1,
   );
   const coords = shown
     .map(
-      (p) => `${10 + ((p[0] - min) / span) * 580},${120 - (p[1] / max) * 110}`,
+      (p) =>
+        `${10 + ((p[0] - min) / span) * 580},${120 - (p[1] / scale) * 110}`,
     )
     .join(" ");
   return `<article class="metric-chart"><h3>${escape(series.label)} · ${escape(series.unit)}</h3><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escape(series.label)}真实监控折线"><line x1="10" y1="120" x2="590" y2="120" class="chart-axis"/><polyline points="${coords}" class="chart-line"/></svg><div class="chart-caption">${new Date(min).toLocaleString("zh-CN")} — ${new Date(points.at(-1)[0]).toLocaleString("zh-CN")} · 最大 ${val(max, series.unit)} · ${series.sampleSeconds ? `采样${series.sampleSeconds}秒` : "采样间隔不规则或未确认"}${step > 1 ? " · 图表抽样显示，原始点未改动" : ""}</div></article>`;
