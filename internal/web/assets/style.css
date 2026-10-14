@@ -816,3 +816,83 @@ dialog::backdrop {
     scrollbar-width: thin;
   }
 }
+
+.inventory-summary {
+  margin: 0 0 22px;
+  padding: 18px 22px;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.inventory-total {
+  margin: 0 0 8px;
+  font-weight: 650;
+  line-height: 1.7;
+}
+.failure-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--amber);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.config-text {
+  max-width: 330px;
+  white-space: normal;
+  font-size: 12px;
+  line-height: 1.7;
+  margin-top: 7px;
+  color: var(--muted);
+}
+td button.name {
+  padding: 0;
+  text-align: left;
+  white-space: normal;
+  max-width: 240px;
+}
+.account-info .inventory-total {
+  margin-top: 14px;
+}
+@media (max-width: 700px) {
+  .inventory-summary {
+    padding: 16px;
+  }
+  .failure-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .account-row .row-actions {
+    margin-left: 0;
+    flex-wrap: wrap;
+  }
+  .panel-head {
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .panel-head .help {
+    max-width: 55%;
+    margin: 0;
+  }
+}
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 15px;
+  padding: 18px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+@media (max-width: 700px) {
+  .pagination {
+    gap: 8px;
+    padding: 12px;
+    flex-wrap: wrap;
+  }
+}

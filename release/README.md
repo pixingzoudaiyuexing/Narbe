@@ -1,6 +1,6 @@
-# Narbe v0.1.0-beta.1 安装与使用
+# Narbe v0.1.0-beta.2 安装与使用
 
-这是首个公开测试版本，供 Owner 自行接入云账号测试，不宣称生产稳定。支持 Linux AMD64 / ARM64、AWS / Azure / Linode / DigitalOcean，单个 Go + SQLite 容器。
+这是 beta.2 候选安装说明；正式独立审核和发布完成前，下载地址尚不可用。已发布 beta.1 不变。正式发行后供 Owner 自行接入云账号测试，不宣称生产稳定。支持 Linux AMD64 / ARM64、AWS / Azure / Linode / DigitalOcean，单个 Go + SQLite 容器。
 
 需要已安装 Docker Engine 和 Docker Compose v2、Bash、curl、tar、sha256sum；服务器无需 Go、Node.js、MySQL 或 Redis。不会自动安装或改动系统 Docker。
 
@@ -10,10 +10,10 @@
 
 ```bash
 mkdir -p narbe-beta && cd narbe-beta
-curl -fL --retry 3 -o narbe-v0.1.0-beta.1-install.tar.gz https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.1/narbe-v0.1.0-beta.1-install.tar.gz
-curl -fL --retry 3 -o SHA256SUMS https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.1/SHA256SUMS
+curl -fL --retry 3 -o narbe-v0.1.0-beta.2-install.tar.gz https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.2/narbe-v0.1.0-beta.2-install.tar.gz
+curl -fL --retry 3 -o SHA256SUMS https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.2/SHA256SUMS
 sha256sum -c SHA256SUMS
-tar -xzf narbe-v0.1.0-beta.1-install.tar.gz
+tar -xzf narbe-v0.1.0-beta.2-install.tar.gz
 ./install.sh
 ```
 
@@ -59,7 +59,7 @@ docker compose --env-file .env --env-file image.env -f compose.yaml restart
 
 ## 测试版边界
 
-应用源码锁定到已正式独立复审PASS的 `5ffbf3479ad1e079b4b35efcaae837ecf08f2b3b`；六项审核问题已修复。发行提交仅增加打包、标签、发布工作流和说明。
+beta.1 的六项审核问题已修复并正式复审PASS。本轮新增四云资源总览、中文地区、规格/价格说明和HTTP弹窗修复，需要新的正式独立审核；未通过前不发布。发行后的确切构建与审核SHA记录在release.json。
 
 支持动态地区、规格和系统镜像查询，已有实例查询、创建及生命周期管理。云厂商差异、计费、配额及权限必须由 Owner 自行验证。
 
@@ -69,3 +69,31 @@ docker compose --env-file .env --env-file image.env -f compose.yaml restart
 * 重启取消尚未派发的任务；未派发任务等待/校验最多5分钟。结果未知的已派发操作不会自动重放。
 
 版本、构建SHA、index与两个平台manifest digest记录在 `release.json` 和 Release 附件 `release-evidence.json`。
+
+## beta.1 无损升级到 beta.2（仅正式发布后执行）
+
+先在原安装目录停止服务，再完整备份 `narbe_narbe_data` Volume（SQLite及master.key必须一起备份，备份文件妥善保密）。不要运行 `down -v`。在新的beta.2目录下载、校验安装包；以下示例假设旧目录为同级 `narbe-beta`，复制既有配置与密码文件：
+
+```bash
+# 在旧目录停止，保留容器和数据Volume
+cd narbe-beta
+docker compose --env-file .env --env-file image.env -f compose.yaml stop
+backup_dir="../narbe-backup-$(date +%Y%m%d-%H%M%S)"
+mkdir -m 700 "$backup_dir"
+docker compose --env-file .env --env-file image.env -f compose.yaml cp narbe:/data "$backup_dir/data"
+cp .env "$backup_dir/deploy.env"
+mkdir -m 700 "$backup_dir/secrets"
+cp secrets/admin-password "$backup_dir/secrets/admin-password"
+cd ..
+mkdir -p narbe-beta2 && cd narbe-beta2
+curl -fL --retry 3 -o narbe-v0.1.0-beta.2-install.tar.gz https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.2/narbe-v0.1.0-beta.2-install.tar.gz
+curl -fL --retry 3 -o SHA256SUMS https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.2/SHA256SUMS
+sha256sum -c SHA256SUMS
+tar -xzf narbe-v0.1.0-beta.2-install.tar.gz
+cp ../narbe-beta/.env .env
+mkdir -m 700 secrets
+cp ../narbe-beta/secrets/admin-password secrets/admin-password
+./install.sh
+```
+
+使用固定Compose项目名 `narbe` 连接同一Volume，保留原管理员密码和凭据。不覆盖 `.env` 中的Origin或绑定地址，不修改HTTP/HTTPS配置。自定义过项目名/Volume或安装目录的部署，应保留实际同一项目及Volume身份，不能另建空Volume冒充升级。确认没有queued/running任务后再重启，避免取消仍在等待的操作；已派发结果未知的任务继续禁止自动重放。保留旧镜像和备份用于必要回滚。

@@ -2,8 +2,9 @@
 set -euo pipefail
 version=$(cat release/VERSION)
 image=ghcr.io/pixingzoudaiyuexing/narbe
-[[ "$version" = v0.1.0-beta.1 ]]
+[[ "$version" = v0.1.0-beta.2 ]]
 [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+[[ "$REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]]
 umask 077
 export DOCKER_CONFIG="$RUNNER_TEMP/narbe-publish-auth"
 mkdir -p "$DOCKER_CONFIG"
@@ -40,7 +41,7 @@ from pathlib import Path
 record=json.loads(Path('.local/release-output/registry.json').read_text())
 platforms={(m['platform']['os'],m['platform']['architecture']) for m in record['manifest']['manifests']}
 assert platforms=={('linux','amd64'),('linux','arm64')},platforms
-record.update(version=Path('release/VERSION').read_text().strip(),image='ghcr.io/pixingzoudaiyuexing/narbe',sourceSha=os.environ['GITHUB_SHA'],reviewedSha='5ffbf3479ad1e079b4b35efcaae837ecf08f2b3b',workflowUrl='https://github.com/'+os.environ['GITHUB_REPOSITORY']+'/actions/runs/'+os.environ['GITHUB_RUN_ID'])
+record.update(version=Path('release/VERSION').read_text().strip(),image='ghcr.io/pixingzoudaiyuexing/narbe',sourceSha=os.environ['GITHUB_SHA'],reviewedSha=os.environ['REVIEWED_SHA'],workflowUrl='https://github.com/'+os.environ['GITHUB_REPOSITORY']+'/actions/runs/'+os.environ['GITHUB_RUN_ID'])
 Path('.local/release-output/release.json').write_text(json.dumps(record,ensure_ascii=False,indent=2)+'\n')
 print('Published immutable index digest:',record['digest'])
 PY

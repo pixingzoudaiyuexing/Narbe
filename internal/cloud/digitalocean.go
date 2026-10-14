@@ -18,6 +18,7 @@ type doSize struct {
 	Slug                string
 	Vcpus, Memory, Disk int
 	Price_monthly       float64
+	Price_hourly        float64
 	Available           bool
 	Regions             []string
 }
@@ -63,7 +64,13 @@ func (d *DigitalOcean) pages(ctx context.Context, path, field string, out any) e
 		if e := decode(data[field], &batch); e != nil {
 			return e
 		}
+		if batch == nil {
+			return &Error{Code: "DigitalOcean 列表响应缺少数据，不能确认资源数量"}
+		}
 		all = append(all, batch...)
+		if field == "droplets" && len(all) > InventoryLimit {
+			return &Error{Code: "DigitalOcean 实例数量超限，不能确认总数"}
+		}
 		if len(batch) < 200 {
 			return decode(marshal(all), out)
 		}
@@ -99,7 +106,7 @@ func (d *DigitalOcean) Catalog(ctx context.Context, region, plan string) (Catalo
 	}
 	for _, s := range sizes {
 		if s.Available && contains(s.Regions, region) && contains(regions[ridx].Sizes, s.Slug) {
-			c.Plans = append(c.Plans, Choice{ID: s.Slug, Name: s.Slug, CPU: s.Vcpus, Memory: s.Memory, Disk: s.Disk, Price: s.Price_monthly, Architecture: "x86_64"})
+			c.Plans = append(c.Plans, Choice{ID: s.Slug, Name: s.Slug, CPU: s.Vcpus, Memory: s.Memory, Disk: s.Disk, DiskKind: "套餐磁盘", Price: s.Price_monthly, Pricing: advertisedPrice(s.Price_monthly, s.Price_hourly, "DigitalOcean sizes API"), Architecture: "x86_64"})
 		}
 	}
 	var images []doImage
@@ -133,7 +140,7 @@ func (d *DigitalOcean) Instances(ctx context.Context, region string) ([]Instance
 		if region != "" && v.Region.Slug != region {
 			continue
 		}
-		i := Instance{ID: strconv.Itoa(v.ID), Name: v.Name, Region: v.Region.Slug, State: v.Status, Plan: v.Size.Slug, Image: v.Image.Name, Actions: Actions(v.Status), IPs: []string{}}
+		i := Instance{ID: strconv.Itoa(v.ID), Name: v.Name, Region: v.Region.Slug, State: v.Status, Plan: v.Size.Slug, Image: v.Image.Name, Actions: Actions(v.Status), IPs: []string{}, CPU: v.Size.Vcpus, Memory: v.Size.Memory, Disk: v.Size.Disk, DiskKind: "套餐磁盘", Pricing: advertisedPrice(v.Size.Price_monthly, v.Size.Price_hourly, "DigitalOcean Droplet size API")}
 		for _, n := range v.Networks.V4 {
 			if n.Type == "public" {
 				i.IPs = append(i.IPs, n.Ip_address)

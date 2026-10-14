@@ -1,3 +1,5 @@
+当前 beta.2 四云UX改进的正式独立审核 REQUIRED / PENDING；之前beta.1的PASS只覆盖其已审核提交，不能沿用为本轮PASS。发布工作流在 `NARBE_BETA2_REVIEWED_SHA` 未经上游正式审核后设置前跳过构建/发布；非发布成功。
+
 Owner 本轮 BETA RELEASE DELIVERY 已确认应用提交 `5ffbf3479ad1e079b4b35efcaae837ecf08f2b3b` 正式复审PASS，六项Finding全部关闭。以下内容保留历史内部审查过程；不能把历史PENDING当作当前应用审核状态。发布仅允许打包/版本/工作流/文档，应用与安全运行配置保持已审核基线。
 
 # 内部审查与正式审核状态

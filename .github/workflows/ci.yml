@@ -24,8 +24,11 @@ jobs:
       - run: python3 scripts/test_build.py
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - run: npm ci --ignore-scripts
-      - run: npx prettier --check internal/web/assets scripts/browser-test.mjs
+      - run: npx prettier --check internal/web/assets scripts/browser-test.mjs scripts/browser-regressions.mjs scripts/format-test.mjs
+      - run: node scripts/format-test.mjs
       - run: npx playwright install --with-deps chromium
       - run: NARBE_BROWSER_TEST=1 go test ./internal/app -run TestBrowser -v -timeout=180s
       - run: docker build -t narbe/ci:check .
       - run: NARBE_IMAGE=narbe/ci:check python3 scripts/test_runtime.py
+      - run: docker pull ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.1@sha256:7ed71f2bbe83c7943600db177b133df045dc0a8d55dbb77e35ec7cf35a5771f2
+      - run: python3 scripts/test_upgrade.py --old-image ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.1@sha256:7ed71f2bbe83c7943600db177b133df045dc0a8d55dbb77e35ec7cf35a5771f2 --new-image narbe/ci:check

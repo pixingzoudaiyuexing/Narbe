@@ -28,16 +28,33 @@ type Choice struct {
 	Extra          map[string]string `json:"extra,omitempty"`
 	Maintenance    string            `json:"maintenance,omitempty"`
 	MaintenanceEnd string            `json:"maintenanceEnd,omitempty"`
+	Pricing        *Pricing          `json:"pricing,omitempty"`
+	DiskKind       string            `json:"diskKind,omitempty"`
+}
+
+// Pricing is an official advertised compute rate, never an all-in bill estimate.
+type Pricing struct {
+	Monthly  float64 `json:"monthly,omitempty"`
+	Hourly   float64 `json:"hourly,omitempty"`
+	Currency string  `json:"currency"`
+	Source   string  `json:"source"`
 }
 type Instance struct {
-	ID      string   `json:"id"`
-	Name    string   `json:"name"`
-	Region  string   `json:"region"`
-	State   string   `json:"state"`
-	IPs     []string `json:"ips"`
-	Plan    string   `json:"plan"`
-	Image   string   `json:"image"`
-	Actions []string `json:"actions"`
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Region       string   `json:"region"`
+	State        string   `json:"state"`
+	IPs          []string `json:"ips"`
+	Plan         string   `json:"plan"`
+	Image        string   `json:"image"`
+	Actions      []string `json:"actions"`
+	CPU          int      `json:"cpu,omitempty"`
+	Memory       int      `json:"memory,omitempty"`
+	Disk         int      `json:"disk,omitempty"`
+	DiskKind     string   `json:"diskKind,omitempty"`
+	Architecture string   `json:"architecture,omitempty"`
+	Pricing      *Pricing `json:"pricing,omitempty"`
+	RegionName   string   `json:"regionName,omitempty"`
 }
 type Catalog struct {
 	Regions  []Choice `json:"regions"`

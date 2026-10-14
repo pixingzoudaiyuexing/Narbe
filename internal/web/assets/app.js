@@ -1,3 +1,11 @@
+import {
+  configLabel,
+  priceLabel,
+  stateGroup,
+  regionLabel,
+  inventoryMessage,
+  serverStateLabel,
+} from "./format.js";
 const root = document.querySelector("#root"),
   dialog = document.querySelector("#dialog");
 const state = {
@@ -13,6 +21,10 @@ const state = {
   error: "",
   loading: false,
   generation: 0,
+  search: "",
+  statusFilter: "",
+  regionSearch: "",
+  listPage: 1,
 };
 const providers = {
   aws: "AWS",
@@ -24,7 +36,7 @@ const labels = {
   create: "创建服务器",
   start: "开机",
   stop: "关机",
-  poweroff: "关机并保留分配",
+  poweroff: "仅关机（计算仍计费）",
   reboot: "重启",
   delete: "删除服务器",
 };
@@ -58,8 +70,153 @@ const esc = (s) =>
       ],
   );
 const account = () => state.accounts.find((a) => a.id === state.accountId);
-const supportsAllRegions = () => account()?.provider !== "aws";
+const inventories = new Map();
+const inventoryFlights = new Map();
+const inventoryQueue = [];
+let inventoryActive = 0;
+const currentInventory = () => inventories.get(state.accountId)?.snapshot;
+function applyInventory(aid, revision, snapshot) {
+  const acc = state.accounts.find((a) => a.id === aid);
+  if (
+    !acc ||
+    acc.revision !== revision ||
+    snapshot.accountId !== aid ||
+    snapshot.accountRevision !== revision
+  )
+    return;
+  inventories.set(aid, { revision, snapshot, error: "" });
+  if (aid === state.accountId) {
+    state.instances = snapshot.items || [];
+    state.instancesLoaded = snapshot.phase === "ready" && !snapshot.summaryOnly;
+    state.loading = snapshot.phase !== "ready" || snapshot.summaryOnly;
+    state.catalog = { regions: snapshot.regions || [] };
+  }
+  render();
+}
+function queueInventory(
+  aid,
+  { force = false, retry = "", summary = false } = {},
+) {
+  const acc = state.accounts.find((a) => a.id === aid);
+  if (!acc) return Promise.resolve();
+  const existing = inventoryFlights.get(aid);
+  if (existing)
+    return existing.promise.then((v) =>
+      !summary && existing.summary
+        ? queueInventory(aid, { summary: false })
+        : v,
+    );
+  const controller = new AbortController();
+  let resolve, reject;
+  const promise = new Promise((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  const flight = { promise, controller, summary, revision: acc.revision };
+  inventoryFlights.set(aid, flight);
+  inventoryQueue.push(async () => {
+    try {
+      let first = true;
+      for (;;) {
+        if (controller.signal.aborted || !state.csrf) return;
+        const query = new URLSearchParams({
+          accountId: aid,
+          ...(summary ? { summary: "1" } : {}),
+          ...(first && force ? { refresh: "1" } : {}),
+          ...(first && retry ? { retry } : {}),
+        });
+        const snapshot = await api("inventory?" + query, {
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
+        first = false;
+        // A summary and a full list must never be merged across snapshots.
+        snapshot.summaryOnly = summary;
+        applyInventory(aid, acc.revision, snapshot);
+        if (snapshot.phase === "ready") return snapshot;
+        await new Promise((yes) => setTimeout(yes, 1000));
+      }
+    } catch (e) {
+      if (
+        !controller.signal.aborted &&
+        state.accounts.some((a) => a.id === aid && a.revision === acc.revision)
+      ) {
+        const old = inventories.get(aid);
+        inventories.set(aid, {
+          revision: acc.revision,
+          snapshot: old?.snapshot,
+          error: e.message,
+        });
+        if (aid === state.accountId) {
+          state.loading = false;
+          state.error = e.message;
+        }
+        render();
+      }
+      throw e;
+    } finally {
+      if (inventoryFlights.get(aid) === flight) inventoryFlights.delete(aid);
+    }
+  });
+  const work = inventoryQueue.pop();
+  inventoryQueue.push(async () => {
+    try {
+      resolve(await work());
+    } catch (e) {
+      reject(e);
+    }
+  });
+  drainInventoryQueue();
+  return promise;
+}
+function drainInventoryQueue() {
+  while (inventoryActive < 2 && inventoryQueue.length) {
+    inventoryActive++;
+    inventoryQueue
+      .shift()()
+      .finally(() => {
+        inventoryActive--;
+        drainInventoryQueue();
+      });
+  }
+}
+function warmInventories() {
+  const ordered = [...state.accounts].sort(
+    (a, b) =>
+      Number(b.id === state.accountId) - Number(a.id === state.accountId),
+  );
+  for (const a of ordered)
+    if (!inventories.has(a.id))
+      queueInventory(a.id, { summary: a.id !== state.accountId }).catch(
+        () => {},
+      );
+}
+function cancelInventories() {
+  for (const flight of inventoryFlights.values()) flight.controller.abort();
+  inventoryFlights.clear();
+  inventories.clear();
+}
+function regionChoices(regions, query = "", selected = "") {
+  const q = query.toLocaleLowerCase();
+  return (regions || []).filter(
+    (r) =>
+      r.id === selected ||
+      !q ||
+      (r.name + " " + r.id).toLocaleLowerCase().includes(q),
+  );
+}
+function snapshotInfo(aid) {
+  const record = inventories.get(aid),
+    v = record?.snapshot;
+  if (record?.error)
+    return `<p class="error-box">${esc(record.error)}；当前总数未确认。</p>`;
+  return `<p class="inventory-total">${esc(inventoryMessage(v))}</p>${v ? `${v.phase === "ready" || v.stats.total > 0 ? `<p class="help">${v.complete ? "" : "已确认部分："}运行中 ${v.stats.running} 台 · 已关机 ${v.stats.stopped} 台 · 其他状态 ${v.stats.other} 台</p>` : '<p class="help">运行与关机数量正在查询…</p>'}<p class="help">${esc(v.scope)} · ${v.updatedAt ? "查询完成于 " + date(v.updatedAt) : "查询尚未完成"} · ${v.complete ? "查询完整" : "总数未确认"}</p><p class="help">${v.startedAt ? "采集开始于 " + date(v.startedAt) + "；" : ""}各地区为分批查询，状态并非同一时刻快照。手动刷新至少间隔15秒。</p>` : ""}`;
+}
 function intentID() {
+  if (!globalThis.crypto?.getRandomValues) {
+    toast("浏览器不支持安全随机标识，请升级浏览器后重试");
+    return "";
+  }
   if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
   // getRandomValues remains available on HTTP. Preserve UUID v4 entropy and
   // the immutable per-dialog ID; never fall back to Math.random or timestamps.
@@ -73,25 +230,29 @@ function intentID() {
 }
 const date = (t) =>
   new Date(t * 1000).toLocaleString("zh-CN", { hour12: false });
-function badge(s) {
-  let cls = ["running", "active", "on", "succeeded"].includes(s)
+function badge(s, server = false) {
+  let cls = (server
+    ? ["running", "active", "on"]
+    : ["running", "active", "on", "succeeded"]
+  ).includes(s)
     ? "good"
     : ["failed"].includes(s)
       ? "bad"
       : ["unknown", "queued"].includes(s)
         ? "warn"
         : "";
-  return `<span class="status ${cls}">${esc(statuses[s] || s)}</span>`;
+  return `<span class="status ${cls}">${esc(server ? serverStateLabel(s) : statuses[s] || s)}</span>`;
 }
 function toast(s) {
   document.querySelector("#toast").textContent = s;
   setTimeout(() => (document.querySelector("#toast").textContent = ""), 4500);
 }
-async function api(path, { method = "GET", body } = {}) {
+async function api(path, { method = "GET", body, signal } = {}) {
   let res;
   try {
     res = await fetch("/api/" + path, {
       method,
+      signal,
       headers: {
         "Content-Type": "application/json",
         "X-CSRF-Token": state.csrf,
@@ -153,7 +314,7 @@ function login() {
       form.reset();
       await loadAccounts();
       shell();
-      if (state.accountId) await refresh(true);
+      if (state.accountId) await refresh();
     });
   };
 }
@@ -173,6 +334,26 @@ async function formAction(form, fn) {
 }
 async function loadAccounts() {
   state.accounts = await api("accounts");
+  for (const [aid, flight] of inventoryFlights) {
+    if (
+      !state.accounts.some(
+        (a) => a.id === aid && a.revision === flight.revision,
+      )
+    ) {
+      flight.controller.abort();
+      inventoryFlights.delete(aid);
+    }
+  }
+  for (const [aid, record] of inventories) {
+    if (
+      !state.accounts.some(
+        (a) => a.id === aid && a.revision === record.revision,
+      )
+    ) {
+      inventoryFlights.get(aid)?.controller.abort();
+      inventories.delete(aid);
+    }
+  }
   if (!state.accounts.some((a) => a.id === state.accountId)) {
     state.accountId = state.accounts[0]?.id || "";
     state.region = "";
@@ -180,6 +361,7 @@ async function loadAccounts() {
     state.instances = [];
     state.instancesLoaded = false;
   }
+  warmInventories();
 }
 function shell() {
   root.innerHTML = `<div class="layout"><aside class="sidebar"><div class="logo"><span class="mark">N</span>Narbe</div><div class="caption">云服务器工作台</div><nav class="nav" aria-label="主导航">${[
@@ -201,6 +383,7 @@ function shell() {
         state.tab = b.dataset.nav;
         state.error = "";
         shell();
+        if (state.tab === "instances" && state.accountId) refresh();
       }),
   );
   document.querySelector("#logout").onclick = async () => {
@@ -208,6 +391,7 @@ function shell() {
       await api("logout", { method: "POST" });
       state.csrf = "";
       state.generation++;
+      cancelInventories();
       state.accounts = [];
       state.jobs = [];
       login();
@@ -227,108 +411,171 @@ function render() {
   document
     .querySelectorAll("[data-nav]")
     .forEach((b) => b.classList.toggle("active", b.dataset.nav === state.tab));
+  const focus = document.activeElement;
+  const focusedID = content.contains(focus) ? focus.id : "";
+  const cursor = focus?.selectionStart;
   if (state.tab === "accounts") renderAccounts(content);
   else if (state.tab === "jobs") renderJobs(content);
   else if (state.tab === "settings") renderSettings(content);
   else renderInstances(content);
+  if (focusedID) {
+    const next = document.getElementById(focusedID);
+    next?.focus();
+    if (typeof cursor === "number" && next?.setSelectionRange)
+      next.setSelectionRange(cursor, cursor);
+  }
 }
 function renderInstances(el) {
-  const allRegions = supportsAllRegions();
-  const scope = state.region
-    ? "所选地区"
-    : !allRegions
-      ? "请选择地区（尚未查询总数）"
-      : account()?.provider === "azure"
-        ? "当前资源组 · 全部地区"
-        : "当前账号 · 全部地区";
-  const count = state.loading
-    ? "…"
-    : state.instancesLoaded
-      ? state.instances.length
-      : "—";
+  const acc = account(),
+    record = inventories.get(state.accountId),
+    v = record?.snapshot;
+  const q = state.search.toLocaleLowerCase();
+  const filtered = (v?.items || []).filter(
+    (i) =>
+      (!state.region || i.region === state.region) &&
+      (!state.statusFilter || stateGroup(i.state) === state.statusFilter) &&
+      (!q ||
+        (i.name + " " + i.id + " " + (i.ips || []).join(" "))
+          .toLocaleLowerCase()
+          .includes(q)),
+  );
+  const loading =
+    acc && (!v || v.phase !== "ready" || v.summaryOnly) && !record?.error;
+  const pages = Math.max(1, Math.ceil(filtered.length / 50));
+  state.listPage = Math.min(state.listPage, pages);
+  const items = filtered.slice((state.listPage - 1) * 50, state.listPage * 50);
+  const regions = regionChoices(v?.regions, state.regionSearch, state.region);
+  const table = `<p class="scroll-hint">← 左右滑动表格查看配置与操作 →</p><div class="table-wrap"><table><thead><tr><th>服务器 / 账号</th><th>状态</th><th>公网 IPv4 / IPv6</th><th>位置 / 配置</th><th>管理</th></tr></thead><tbody>${items.map((i, n) => `<tr><td><button class="quiet name" data-details="${n}">${esc(i.name)}</button><div class="secondary">${esc(providers[acc.provider])} · ${esc(acc.name)}</div><div class="secondary mono" title="${esc(i.id)}">${esc(i.id)}</div></td><td>${badge(i.state, true)}</td><td>${i.ips?.length ? i.ips.map((ip) => `<div class="mono">${esc(ip)}</div>`).join("") : '<span class="help">未分配或未确认</span>'}</td><td><div>${esc(regionLabel(v.regions, i.region, i.regionName))}</div><div class="config-text">${esc(configLabel(i, acc.provider))}</div><div class="secondary mono">${esc(i.plan || "型号未确认")}</div></td><td><div class="row-actions"><select aria-label="${esc(i.name)} 的操作" data-action-select="${n}">${i.actions.map((a) => `<option value="${a}">${esc(labels[a])}</option>`).join("")}</select><button data-action="${n}">执行</button></div></td></tr>`).join("")}</tbody></table></div>`;
+  let body;
+  if (!state.accounts.length)
+    body =
+      '<div class="empty"><div class="empty-icon">◈</div><h2>先接入你的第一个云账号</h2><p>连接 AWS、Azure、Linode 或 DigitalOcean，<br>即可在这里查看和管理服务器。</p><button class="primary" id="connect">接入云账号 →</button></div>';
+  else if (items.length) body = table;
+  else if (loading)
+    body =
+      '<div class="loading" role="status">正在查询云端资源，数量尚未确认…</div>';
+  else if (record?.error || !v?.complete)
+    body =
+      '<div class="empty"><h2>服务器总数暂未确认</h2><p>部分资源可能尚未查询到，请重试失败范围。</p></div>';
+  else if (v.stats.total > 0)
+    body =
+      '<div class="empty"><h2>没有符合筛选条件的服务器</h2><p>清除地区、状态或搜索条件即可查看全部结果。</p><button id="clear-filters">清除筛选</button></div>';
+  else
+    body = `<div class="empty"><div class="empty-icon">▦</div><h2>${state.region ? "这个地区还没有服务器" : "当前范围还没有服务器"}</h2><p>云端完整查询确认此范围为0台。创建服务器会产生费用。</p><button class="primary" id="empty-create">创建服务器</button></div>`;
   el.innerHTML =
     heading(
       "服务器",
-      "查看资源状态，管理每一次云端操作。",
-      `<button class="primary" id="create" ${!state.accountId ? "disabled" : ""}>＋ 创建服务器</button>`,
+      "查看所有地区的资源，再按位置、状态或名称筛选。",
+      `<button class="primary" id="create" ${!acc ? "disabled" : ""}>＋ 创建服务器</button>`,
     ) +
-    `${
-      state.accounts.length
-        ? `<div class="toolbar"><label>云账号<select id="account">${options(
-            state.accounts.map((a) => ({
-              id: a.id,
-              name: providers[a.provider] + " · " + a.name,
-            })),
-            state.accountId,
-            "选择账号",
-          )}</select></label><label>地区<select id="region" ${!state.catalog ? "disabled" : ""}>${options(state.catalog?.regions, state.region, allRegions ? "全部地区" : "选择地区")}</select></label><span class="grow"></span><button id="refresh" ${state.loading ? "disabled" : ""}>${state.loading ? "正在刷新…" : "↻ 刷新资源"}</button></div>`
-        : ""
-    }<div class="error-box" role="alert">${esc(state.error)}</div>${state.jobs.some((j) => j.state === "unknown") ? '<div class="notice">有操作结果待核实。请到「操作任务」检查云端结果后再继续。</div>' : ""}<section class="panel"><div class="panel-head"><h2>实例列表<span class="count">${count}</span></h2><span class="help">${account() ? esc(providers[account().provider] + " · " + scope) : "尚未接入云账号"}</span></div>${state.loading ? '<div class="loading" role="status">正在从云账号查询资源…</div>' : !state.accounts.length ? '<div class="empty"><div class="empty-icon">◈</div><h2>先接入你的第一个云账号</h2><p>连接 AWS、Azure、Linode 或 DigitalOcean，<br>即可在这里查看和管理服务器。</p><button class="primary" id="connect">接入云账号 →</button></div>' : state.error ? '<div class="empty"><h2>服务器查询失败</h2><p>当前数量未确认，请刷新重试。</p></div>' : !state.region && !allRegions ? '<div class="empty"><div class="empty-icon">⌖</div><h2>选择一个地区</h2><p>先刷新账号目录，再选择地区查看服务器。</p><button id="load-regions">加载可用地区</button></div>' : !state.instances.length ? `<div class="empty"><div class="empty-icon">▦</div><h2>${state.region ? "这个地区还没有服务器" : "当前范围还没有服务器"}</h2><p>可以创建新服务器，或切换其他地区。<br>创建前会展示配置并要求确认。</p><button class="primary" id="empty-create">创建服务器</button></div>` : `<p class="scroll-hint">← 左右滑动表格查看 IP 与操作 →</p><div class="table-wrap"><table><thead><tr><th>服务器</th><th>状态</th><th>公网 IP</th><th>规格 / 地区</th><th>操作</th></tr></thead><tbody>${state.instances.map((i, n) => `<tr><td><div class="name">${esc(i.name)}</div><div class="secondary mono" title="${esc(i.id)}">${esc(i.id)}</div></td><td>${badge(i.state)}</td><td>${i.ips?.length ? i.ips.map((ip) => `<div class="mono">${esc(ip)}</div>`).join("") : '<span class="help">未分配</span>'}</td><td>${esc(i.plan)}<div class="secondary">${esc(i.region)}</div></td><td><div class="row-actions"><select aria-label="${esc(i.name)} 的操作" data-action-select="${n}">${i.actions.map((a) => `<option value="${a}">${esc(labels[a])}</option>`).join("")}</select><button data-action="${n}">执行</button></div></td></tr>`).join("")}</tbody></table></div>`}</section><p class="footer-note">状态来自云厂商。停止实例后，磁盘、网络和保留 IP 仍可能计费。${account()?.provider === "azure" ? "Azure 删除仅删除虚拟机，保留磁盘、网卡与公网 IP。" : ""}</p>`;
+    (acc
+      ? `<div class="toolbar"><label>云账号<select id="account">${options(
+          state.accounts.map((a) => ({
+            id: a.id,
+            name: providers[a.provider] + " · " + a.name,
+          })),
+          state.accountId,
+          "选择账号",
+        )}</select></label><label>搜索地区<input id="region-search" type="search" value="${esc(state.regionSearch)}" placeholder="中文位置或地区代码"></label><label>地区<select id="region">${options(regions, state.region, "全部地区")}</select></label><label>状态<select id="status-filter">${options(
+          [
+            { id: "running", name: "运行中" },
+            { id: "stopped", name: "已关机" },
+            { id: "other", name: "其他状态" },
+          ],
+          state.statusFilter,
+          "全部状态",
+        )}</select></label><label>搜索服务器<input id="instance-search" type="search" value="${esc(state.search)}" placeholder="服务器名称、IP 或实例 ID"></label><button id="refresh" ${loading ? "disabled" : ""}>${loading ? "正在查询…" : "↻ 刷新资源"}</button></div><section class="inventory-summary">${snapshotInfo(acc.id)}${v?.warnings?.map((m) => `<p class="help">${esc(m)}</p>`).join("") || ""}${v?.failures?.map((f, n) => `<div class="failure-row"><span>${esc(f.region === "*" ? "当前查询范围" : regionLabel(v.regions, f.region))}：${esc(f.message)}</span><button data-retry="${n}" ${loading ? "disabled" : ""}>重试此范围</button></div>`).join("") || ""}</section>`
+      : "") +
+    `<div class="error-box" role="alert">${esc(state.error)}</div>${state.jobs.some((j) => j.state === "unknown") ? '<div class="notice">有操作结果待核实。请先到「操作任务」核实云端结果。</div>' : ""}<section class="panel"><div class="panel-head"><h2>实例列表<span class="count">${loading ? "…" : v?.complete || filtered.length ? filtered.length : "—"}</span></h2><span class="help">${state.region ? esc(regionLabel(v?.regions, state.region)) : "全部地区"} · ${v ? `已发现 ${v.stats.total} 台${v.complete ? "" : "，总数未确认"}` : "尚未完成查询"}</span></div>${body}${filtered.length > 50 ? `<div class="pagination"><button id="previous-page" ${state.listPage === 1 ? "disabled" : ""}>上一页</button><span>第 ${state.listPage} / ${pages} 页 · 每页最多50台</span><button id="next-page" ${state.listPage === pages ? "disabled" : ""}>下一页</button></div>` : ""}</section><p class="footer-note">关机并不一定停止计费。磁盘、网络、公网 IP 和备份仍可能收费。${acc?.provider === "azure" ? "Azure 删除仅删除VM，保留关联磁盘和网络资源；请到控制台核实费用。" : ""}</p>`;
+  el.querySelector("#previous-page")?.addEventListener("click", () => {
+    state.listPage--;
+    render();
+  });
+  el.querySelector("#next-page")?.addEventListener("click", () => {
+    state.listPage++;
+    render();
+  });
   el.querySelector("#create")?.addEventListener("click", createDialog);
   el.querySelector("#empty-create")?.addEventListener("click", createDialog);
   el.querySelector("#connect")?.addEventListener("click", () =>
     accountDialog(),
   );
-  el.querySelector("#load-regions")?.addEventListener("click", () =>
-    refresh(true),
-  );
-  el.querySelector("#refresh")?.addEventListener("click", () =>
-    refresh(!state.catalog),
-  );
+  el.querySelector("#refresh")?.addEventListener("click", () => refresh(true));
   el.querySelector("#account")?.addEventListener("change", (e) => {
     state.accountId = e.target.value;
+    state.listPage = 1;
     state.region = "";
     state.catalog = null;
     state.instances = [];
-    state.instancesLoaded = false;
-    refresh(true);
-  });
-  el.querySelector("#region")?.addEventListener("change", (e) => {
-    state.region = e.target.value;
+    state.search = "";
+    state.regionSearch = "";
+    state.statusFilter = "";
+    state.error = "";
+    state.generation++;
+    render();
     refresh();
   });
+  for (const [id, key] of [
+    ["region", "region"],
+    ["status-filter", "statusFilter"],
+  ])
+    el.querySelector("#" + id)?.addEventListener("change", (e) => {
+      state[key] = e.target.value;
+      state.listPage = 1;
+      render();
+    });
+  for (const [id, key] of [
+    ["instance-search", "search"],
+    ["region-search", "regionSearch"],
+  ])
+    el.querySelector("#" + id)?.addEventListener("input", (e) => {
+      state[key] = e.target.value;
+      state.listPage = 1;
+      render();
+    });
+  el.querySelector("#clear-filters")?.addEventListener("click", () => {
+    state.region = "";
+    state.search = "";
+    state.regionSearch = "";
+    state.statusFilter = "";
+    render();
+  });
+  el.querySelectorAll("[data-retry]").forEach(
+    (b) =>
+      (b.onclick = () => refresh(false, v.failures[+b.dataset.retry].region)),
+  );
   el.querySelectorAll("[data-action]").forEach(
     (b) =>
       (b.onclick = () => {
         const n = +b.dataset.action;
         actionDialog(
-          state.instances[n],
+          items[n],
           el.querySelector(`[data-action-select="${n}"]`).value,
         );
       }),
   );
+  el.querySelectorAll("[data-details]").forEach(
+    (b) =>
+      (b.onclick = () => instanceDetails(items[+b.dataset.details], acc, v)),
+  );
 }
-async function refresh(catalog = false) {
-  const gen = ++state.generation,
-    aid = state.accountId,
-    region = state.region;
-  state.loading = true;
-  state.instancesLoaded = false;
-  state.instances = [];
+async function refresh(force = false, retry = "") {
+  const aid = state.accountId,
+    gen = ++state.generation;
+  if (!aid) return;
   state.error = "";
-  render();
   try {
-    if (catalog) {
-      const c = await api("catalog?accountId=" + encodeURIComponent(aid));
-      if (gen !== state.generation) return;
-      state.catalog = c;
-    }
-    if (region || supportsAllRegions()) {
-      const items = await api(
-        "instances?" + new URLSearchParams({ accountId: aid, region }),
-      );
-      if (gen !== state.generation) return;
-      state.instances = items;
-      state.instancesLoaded = true;
-    }
+    await queueInventory(aid, { force, retry, summary: false });
   } catch (e) {
     if (gen === state.generation) state.error = e.message;
-  } finally {
-    if (gen === state.generation) {
-      state.loading = false;
-      render();
-    }
   }
+  if (gen === state.generation) render();
+}
+function instanceDetails(i, acc, v) {
+  openDialog(
+    "服务器详情",
+    `<dl class="summary"><dt>云厂商 / 账号</dt><dd>${esc(providers[acc.provider] + " · " + acc.name)}</dd><dt>服务器</dt><dd>${esc(i.name)}</dd><dt>地区</dt><dd>${esc(regionLabel(v.regions, i.region, i.regionName))}</dd><dt>资源 ID</dt><dd class="mono">${esc(i.id)}</dd><dt>状态</dt><dd>${badge(i.state, true)}</dd><dt>配置</dt><dd>${esc(configLabel(i, acc.provider))}<br>${esc(i.plan || "型号未确认")}</dd><dt>系统</dt><dd>${esc(i.image || "系统版本未确认")}</dd><dt>公网 IP</dt><dd>${esc(i.ips?.join(" / ") || "未分配或未确认")}</dd><dt>广告价格</dt><dd>${esc(priceLabel(i.pricing))}</dd><dt>查询范围</dt><dd>${esc(v.scope)}</dd></dl><p class="notice">配置以云厂商查询结果为准，未知信息不会视为0或免费。独立磁盘、公网IP、备份、流量及系统授权可能额外计费。管理操作提交前会重新核实资源身份。</p>`,
+  );
 }
 function openDialog(title, body) {
   dialog.innerHTML = `<header class="dialog-head"><h2 id="dialog-title">${esc(title)}</h2><button class="quiet" type="button" data-close aria-label="关闭">✕</button></header><div class="dialog-body">${body}</div>`;
@@ -420,10 +667,18 @@ function renderAccounts(el) {
       `<button class="primary" id="add-account">＋ 接入云账号</button>`,
     ) +
     (state.accounts.length
-      ? `<div class="account-list">${state.accounts.map((a, n) => `<article class="account-row"><div class="provider-icon">${esc(providers[a.provider].slice(0, 2))}</div><div class="account-info"><h3>${esc(a.name)}</h3><div class="secondary">${providers[a.provider]} · 接入于 ${date(a.created)}</div></div><div class="row-actions"><button data-view="${n}">查看服务器</button><button data-edit="${n}">编辑</button><button class="danger" data-remove="${n}">移除</button></div></article>`).join("")}</div>`
+      ? `<div class="account-list">${state.accounts.map((a, n) => `<article class="account-row"><div class="provider-icon">${esc(providers[a.provider].slice(0, 2))}</div><div class="account-info"><h3>${esc(a.name)}</h3><div class="secondary">${providers[a.provider]} · 接入于 ${date(a.created)}</div>${snapshotInfo(a.id)}</div><div class="row-actions"><button data-summary-refresh="${n}">刷新统计</button><button data-view="${n}">查看服务器</button><button data-edit="${n}">编辑</button><button class="danger" data-remove="${n}">移除</button></div></article>`).join("")}</div>`
       : '<section class="panel"><div class="empty"><div class="empty-icon">◈</div><h2>还没有接入云账号</h2><p>选择云厂商并填写凭据，保存后即可查询资源。</p></div></section>') +
     '<p class="footer-note">移除账号只移除本地访问凭据，不会删除云端服务器。操作记录仍会保留。</p>';
   el.querySelector("#add-account").onclick = () => accountDialog();
+  el.querySelectorAll("[data-summary-refresh]").forEach(
+    (b) =>
+      (b.onclick = () =>
+        queueInventory(state.accounts[+b.dataset.summaryRefresh].id, {
+          force: true,
+          summary: true,
+        }).catch(() => {})),
+  );
   el.querySelectorAll("[data-edit]").forEach(
     (b) => (b.onclick = () => accountDialog(state.accounts[+b.dataset.edit])),
   );
@@ -437,7 +692,7 @@ function renderAccounts(el) {
         state.instancesLoaded = false;
         state.tab = "instances";
         shell();
-        refresh(true);
+        refresh();
       }),
   );
   el.querySelectorAll("[data-remove]").forEach(
@@ -466,16 +721,85 @@ function renderAccounts(el) {
 }
 async function createDialog() {
   const intentId = intentID();
-  if (!account()) return;
+  if (!intentId || !account()) return;
   const aid = state.accountId,
     provider = account().provider;
   let catalog = state.catalog,
-    seq = 0;
+    seq = 0,
+    catalogController;
   openDialog(
     "创建服务器",
-    `<form id="create-form"><div class="error-box" role="alert"></div><p class="sub">${esc(providers[provider])} · ${esc(account().name)}</p><div class="section-title"><span class="step">1</span>地区与配置</div><label class="field">服务器名称<input name="name" pattern="[A-Za-z0-9-]{1,63}" maxlength="63" required placeholder="例如：dev-server-01"></label><div class="grid2"><label class="field">地区<select name="region" required>${options(catalog?.regions, state.region, "正在加载地区…")}</select></label><label class="field">规格<select name="plan" required disabled><option value="">先选择地区</option></select></label></div><label class="field">搜索系统镜像<input name="imageSearch" placeholder="Ubuntu、Debian、Windows Server…" type="search"></label><label class="field">系统镜像<select name="image" required disabled><option value="">先选择地区和规格</option></select><p class="help">优先展示上游维护中的版本。维护期来源于官方发行数据；无法核实时标记未确认。</p></label><label class="check"><input name="showOlder" type="checkbox">显示维护结束或尚未发布的镜像</label><div id="network-fields"></div><div class="section-title"><span class="step">2</span>登录与启动</div><div id="access-fields"></div><details><summary>更多启动选项</summary>${["aws", "digitalocean"].includes(provider) ? '<label class="field">初始化脚本（可选）<textarea name="userData" maxlength="32768" placeholder="#!/bin/sh"></textarea></label>' : ""}${["aws", "digitalocean"].includes(provider) ? '<label class="check"><input name="ipv6" type="checkbox">分配 IPv6（需要地区及网络支持）</label>' : ""}${["linode", "digitalocean"].includes(provider) ? '<label class="check"><input name="backups" type="checkbox">启用云厂商自动备份（可能额外收费）</label>' : ""}${provider === "azure" ? '<label class="field">系统盘容量 GB（留空使用镜像默认值）<input name="disk" type="number" min="1" max="4095"></label>' : ""}</details><div class="section-title"><span class="step">3</span>确认配置</div><div class="notice">创建会产生云服务费用。提交后可在操作任务中查看进度。${provider === "azure" ? "将自动创建公网 IP 和网卡，资源名称附加任务后缀。所选子网需配置合适的安全规则。" : ""}</div><label class="field">再次输入服务器名称确认<input name="confirmName" required autocomplete="off"></label><div class="dialog-actions"><button type="button" data-close>取消</button><button class="primary" type="submit" disabled>确认创建</button></div></form>`,
+    `<form id="create-form"><div class="error-box" role="alert"></div><p class="sub">${esc(providers[provider])} · ${esc(account().name)}</p><div class="section-title"><span class="step">1</span>地区与配置</div><label class="field">服务器名称<input name="name" pattern="[A-Za-z0-9-]{1,63}" maxlength="63" required placeholder="例如：dev-server-01"></label><label class="field">搜索地区<input name="regionSearch" type="search" placeholder="输入中文位置或原始地区代码"></label><div class="grid2"><label class="field">地区<select name="region" required>${options(catalog?.regions, state.region, "正在加载地区…")}</select></label><label class="field">规格<select name="plan" required disabled><option value="">先选择地区</option></select></label></div><div id="plan-info" class="notice">先选择地区，查询该地区可用的CPU、内存、磁盘和价格。</div><label class="field">搜索系统镜像<input name="imageSearch" placeholder="Ubuntu、Debian、Windows Server…" type="search"></label><label class="field">系统镜像<select name="image" required disabled><option value="">先选择地区和规格</option></select><p class="help">优先展示上游维护中的版本。维护期来源于官方发行数据；无法核实时标记未确认。</p><p id="image-compatibility" class="help"></p></label><label class="check"><input name="showOlder" type="checkbox">显示维护结束或尚未发布的镜像</label><div id="network-fields"></div><div class="section-title"><span class="step">2</span>登录与启动</div><div id="access-fields"></div><details><summary>更多启动选项</summary>${["aws", "digitalocean"].includes(provider) ? '<label class="field">初始化脚本（可选）<textarea name="userData" maxlength="32768" placeholder="#!/bin/sh"></textarea></label>' : ""}${["aws", "digitalocean"].includes(provider) ? '<label class="check"><input name="ipv6" type="checkbox">分配 IPv6（需要地区及网络支持）</label>' : ""}${["linode", "digitalocean"].includes(provider) ? '<label class="check"><input name="backups" type="checkbox">启用云厂商自动备份（可能额外收费）</label>' : ""}${provider === "azure" ? '<label class="field">系统盘容量 GB（留空使用镜像默认值）<input name="disk" type="number" min="1" max="4095"></label>' : ""}</details><div class="section-title"><span class="step">3</span>核对配置</div><dl id="create-summary" class="summary" aria-live="polite"></dl><div class="notice">创建会产生云服务费用。提交后可在操作任务中查看进度。${provider === "azure" ? "将自动创建公网 IP 和网卡，资源名称附加任务后缀。所选子网需配置合适的安全规则。" : ""}</div><label class="field">再次输入服务器名称确认<input name="confirmName" required autocomplete="off"></label><div class="dialog-actions"><button type="button" data-close>取消</button><button class="primary" type="submit" disabled>确认创建</button></div></form>`,
   );
   const f = dialog.querySelector("form");
+  const selectedAccount = account();
+  dialog.addEventListener(
+    "close",
+    () => {
+      ++seq;
+      catalogController?.abort();
+    },
+    { once: true },
+  );
+  function summary() {
+    const p = catalog?.plans?.find((p) => p.id === f.plan.value);
+    const im = catalog?.images?.find((im) => im.id === f.image.value);
+    const network = catalog?.networks?.find(
+      (n) => n.id === f.elements.network?.value,
+    );
+    const group = catalog?.groups?.find(
+      (n) => n.id === f.elements.group?.value,
+    );
+    f.querySelector("#plan-info").textContent = p
+      ? `${configLabel(p, provider)} · 型号 ${p.id}。${priceLabel(p.pricing)}${p.pricing?.source ? " 来源：" + p.pricing.source : ""}。独立磁盘、公网IP、备份、流量和系统授权可能额外收费。`
+      : catalog?.plans?.length
+        ? "请选择配置；vCPU是云厂商分配的虚拟处理器数量。"
+        : "先选择地区查询可用规格；没有可用规格时可换地区或重试。";
+    const fields = [
+      ["云厂商 / 账号", providers[provider] + " · " + selectedAccount.name],
+      [
+        "地区",
+        f.region.value
+          ? regionLabel(catalog?.regions, f.region.value)
+          : "尚未选择",
+      ],
+      ["服务器名称", f.elements.name.value || "尚未填写"],
+      ["配置", p ? configLabel(p, provider) + " · " + p.id : "尚未选择"],
+      ["系统", im?.name || "尚未选择"],
+      ["CPU 架构", p?.architecture || im?.architecture || "未确认"],
+      [
+        "系统盘",
+        ["aws", "azure"].includes(provider)
+          ? f.elements.disk?.value
+            ? f.elements.disk.value + " GB（独立计费）"
+            : im?.disk
+              ? "镜像最低 " + im.disk + " GB；实际系统盘按云厂商配置计费"
+              : "使用镜像默认系统盘，容量及费用以云厂商为准"
+          : p?.disk
+            ? p.disk + " GB 套餐磁盘，系统与交换分区共享"
+            : "容量未确认",
+      ],
+      [
+        "网络",
+        [network?.name, group?.name].filter(Boolean).join(" / ") ||
+          (["aws", "azure"].includes(provider)
+            ? "尚未选择网络"
+            : "云厂商默认网络"),
+      ],
+      [
+        "登录方式",
+        f.elements.key?.value || f.elements.sshPublicKey?.value
+          ? "SSH 密钥（不展示密钥内容）"
+          : f.elements.password?.value
+            ? "密码登录（不展示密码）"
+            : "尚未配置",
+      ],
+      ["广告价格", priceLabel(p?.pricing)],
+    ];
+    f.querySelector("#create-summary").innerHTML = fields
+      .map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`)
+      .join("");
+  }
   function access() {
     f.querySelector("#access-fields").innerHTML =
       `${["aws", "digitalocean", "linode"].includes(provider) ? `<label class="field">${provider === "aws" ? "SSH 密钥对" : "账号 SSH 密钥"}${provider === "linode" ? "（可选）" : ""}<select name="key" ${provider === "linode" ? "" : "required"}>${options(catalog?.keys, "", "选择已有密钥")}</select></label>` : ""}${["azure", "linode"].includes(provider) ? `${provider === "azure" ? '<label class="field">管理来源 IPv4 CIDR<input name="managementCidr" placeholder="你的公网 IP/32" required><p class="help">只允许这个可信地址范围访问 SSH 或 RDP。请在公网 IP 变化后到 Azure 控制台更新规则。</p></label><label class="field">管理员用户名<input name="username" value="narbe" pattern="[a-z0-9_-]{1,20}" required></label>' : ""}<label class="field">SSH 公钥${provider === "azure" ? "（Linux 必填）" : "（可选）"}<textarea name="sshPublicKey" placeholder="ssh-ed25519 AAAA…" maxlength="16384"></textarea></label><label class="field">${provider === "linode" ? "root 密码（使用 SSH 密钥可留空）" : "管理员密码（Windows 必填）"}<input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128"><p class="help">避免重复字符、连续数字和常见口令，建议使用密码管理器生成独立密码。云端还会检查密码强度。</p></label>` : ""}${provider === "aws" ? '<p class="help">Windows 请使用 RSA 密钥对，初始密码在 AWS 控制台解密查看。这里不会接收你的私钥。</p>' : ""}`;
@@ -493,7 +817,13 @@ async function createDialog() {
           (!i.architecture ||
             !plan?.architecture ||
             i.architecture === plan.architecture) &&
-          (!q || i.name.toLowerCase().includes(q) || i.family.includes(q)),
+          (!["linode", "digitalocean"].includes(provider) ||
+            !plan?.disk ||
+            !i.disk ||
+            plan.disk >= i.disk) &&
+          (!q ||
+            i.name.toLowerCase().includes(q) ||
+            (i.family || "").includes(q)),
       )
       .sort(
         (a, b) =>
@@ -513,27 +843,63 @@ async function createDialog() {
               ended: 4,
               unreleased: 5,
             }[b.maintenance || "unknown"] ||
-          a.family.localeCompare(b.family) ||
+          (a.family || "").localeCompare(b.family || "") ||
           b.name.localeCompare(a.name, undefined, { numeric: true }),
       );
     f.image.innerHTML = options(ims, previous, "选择可用系统镜像");
-    f.image.disabled = !ims.length;
-    f.querySelector("button[type=submit]").disabled =
-      !catalog?.plans?.length || !ims.length;
+    f.image.disabled = !plan || !ims.length;
+    f.querySelector("button[type=submit]").disabled = !plan || !ims.length;
+    f.querySelector("#image-compatibility").textContent = !plan
+      ? "先选择配置，系统列表会按CPU架构和磁盘容量筛选。"
+      : !ims.length
+        ? "没有匹配的系统；可清除搜索、切换配置或查看较旧镜像。"
+        : "已按架构、磁盘容量和维护状态筛选，选择时仍会向云厂商重新校验。";
+    summary();
   }
   async function load() {
     const current = ++seq;
+    catalogController?.abort();
+    catalogController = new AbortController();
+    const regions = catalog?.regions || [];
+    catalog = {
+      regions,
+      plans: [],
+      images: [],
+      networks: [],
+      groups: [],
+      keys: [],
+    };
+    f.plan.innerHTML = options([], "", "正在查询可用配置…");
+    f.image.innerHTML = options([], "", "等待配置查询…");
+    f.querySelector("#network-fields").innerHTML = "";
+    access();
+    summary();
     f.querySelector("button[type=submit]").disabled = true;
     f.plan.disabled = true;
     f.image.disabled = true;
     f.querySelector(".error-box").textContent = "";
     try {
-      catalog = await api(
+      const nextCatalog = await api(
         "catalog?" +
           new URLSearchParams({ accountId: aid, region: f.region.value }),
+        { signal: catalogController.signal },
       );
-      if (current !== seq || !dialog.open) return;
-      f.plan.innerHTML = options(catalog.plans, "", "选择规格");
+      if (
+        current !== seq ||
+        !dialog.open ||
+        !f.isConnected ||
+        state.accountId !== aid
+      )
+        return;
+      catalog = nextCatalog;
+      f.plan.innerHTML =
+        '<option value="">选择CPU、内存和磁盘配置</option>' +
+        catalog.plans
+          .map(
+            (p) =>
+              `<option value="${esc(p.id)}">${esc(configLabel(p, provider) + " · " + p.id + " · " + priceLabel(p.pricing))}</option>`,
+          )
+          .join("");
       f.plan.disabled = !catalog.plans.length;
       f.querySelector("#network-fields").innerHTML = ["aws", "azure"].includes(
         provider,
@@ -548,10 +914,32 @@ async function createDialog() {
     }
   }
   access();
-  f.region.onchange = load;
+  f.region.onchange = () => {
+    if (f.region.value) load();
+    else {
+      ++seq;
+      catalogController?.abort();
+      catalog = { regions: catalog?.regions || [], plans: [], images: [] };
+      f.plan.innerHTML = options([], "", "先选择地区");
+      f.plan.disabled = true;
+      images();
+      access();
+    }
+  };
+  f.regionSearch.oninput = () => {
+    f.region.innerHTML = options(
+      regionChoices(catalog?.regions, f.regionSearch.value, f.region.value),
+      f.region.value,
+      "选择地区",
+    );
+  };
+  f.addEventListener("input", summary);
+  f.addEventListener("change", summary);
   f.plan.onchange = images;
   f.imageSearch.oninput = images;
   f.showOlder.onchange = images;
+  f.image.onchange = summary;
+  summary();
   f.onsubmit = (e) => {
     e.preventDefault();
     formAction(f, async () => {
@@ -594,7 +982,7 @@ async function createDialog() {
   if (!catalog?.regions) {
     try {
       catalog = await api("catalog?accountId=" + encodeURIComponent(aid));
-      if (!dialog.open) return;
+      if (!dialog.open || !f.isConnected || state.accountId !== aid) return;
       f.region.innerHTML = options(catalog.regions, state.region);
     } catch (e) {
       f.querySelector(".error-box").textContent = e.message;
@@ -614,8 +1002,10 @@ async function submit(body) {
 }
 function actionDialog(i, action) {
   const intentId = intentID();
-  if (!action) return;
-  const provider = account().provider;
+  if (!intentId || !action) return;
+  const selectedAccount = account();
+  const aid = selectedAccount.id;
+  const provider = selectedAccount.provider;
   let warning =
     action === "delete"
       ? "删除无法撤销，请先确认已备份重要数据。"
@@ -631,7 +1021,7 @@ function actionDialog(i, action) {
     warning += " 此操作保留 Azure 计算分配，计算费用仍会继续。";
   openDialog(
     labels[action],
-    `<form><div class="error-box" role="alert"></div><div class="notice">${esc(warning)}</div><dl class="summary"><dt>服务器</dt><dd>${esc(i.name)}</dd><dt>地区</dt><dd>${esc(i.region)}</dd><dt>资源标识</dt><dd class="mono">${esc(i.id)}</dd></dl><label class="field">输入服务器名称「${esc(i.name)}」确认<input name="confirmName" required autocomplete="off"></label><div class="dialog-actions"><button type="button" data-close>取消</button><button class="${action === "delete" ? "danger" : "primary"}" type="submit">确认${labels[action]}</button></div></form>`,
+    `<form><div class="error-box" role="alert"></div><div class="notice">${esc(warning)}</div><dl class="summary"><dt>服务器</dt><dd>${esc(i.name)}</dd><dt>云厂商 / 账号</dt><dd>${esc(providers[provider] + " · " + selectedAccount.name)}</dd><dt>地区</dt><dd>${esc(regionLabel(currentInventory()?.regions, i.region, i.regionName))}</dd><dt>资源标识</dt><dd class="mono">${esc(i.id)}</dd></dl><label class="field">输入服务器名称「${esc(i.name)}」确认<input name="confirmName" required autocomplete="off"></label><div class="dialog-actions"><button type="button" data-close>取消</button><button class="${action === "delete" ? "danger" : "primary"}" type="submit">确认${labels[action]}</button></div></form>`,
   );
   const f = dialog.querySelector("form");
   f.onsubmit = (e) => {
@@ -639,7 +1029,7 @@ function actionDialog(i, action) {
     formAction(f, async () => {
       await submit({
         id: intentId,
-        accountId: state.accountId,
+        accountId: aid,
         action,
         region: i.region,
         target: i.id,
@@ -768,7 +1158,7 @@ try {
   await loadAccounts();
   await updateJobs();
   shell();
-  if (state.accountId) refresh(true);
+  if (state.accountId) refresh();
 } catch {
   login();
 }

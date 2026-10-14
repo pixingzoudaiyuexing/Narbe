@@ -83,7 +83,13 @@ func (a *Azure) list(ctx context.Context, path string, out any) error {
 		if e := a.call(ctx, "GET", path, nil, &res); e != nil {
 			return e
 		}
+		if res.Value == nil {
+			return &Error{Code: "Azure 列表响应缺少数据，不能确认资源数量"}
+		}
 		all = append(all, res.Value...)
+		if strings.Contains(path, "/virtualMachines?") && len(all) > InventoryLimit {
+			return &Error{Code: "Azure 虚拟机数量超限，不能确认总数"}
+		}
 		if res.Next == "" {
 			return decode(marshal(all), out)
 		}
@@ -105,6 +111,10 @@ type azVM struct {
 		ProvisioningState string
 		HardwareProfile   struct{ VMSize string }
 		StorageProfile    struct {
+			OSDisk struct {
+				DiskSizeGB int
+				OSType     string
+			}
 			ImageReference struct{ Publisher, Offer, SKU, Version string }
 		}
 		NetworkProfile struct {
@@ -246,53 +256,61 @@ func (a *Azure) Instances(ctx context.Context, region string) ([]Instance, error
 		if region != "" && region != v.Location {
 			continue
 		}
-		var full azVM
-		if e := a.call(ctx, "GET", v.ID+"?$expand=instanceView&api-version=2024-07-01", nil, &full); e != nil {
+		i, e := a.hydrateVM(ctx, v)
+		if e != nil {
 			return nil, e
-		}
-		state := strings.ToLower(full.Properties.ProvisioningState)
-		for _, s := range full.Properties.InstanceView.Statuses {
-			if strings.HasPrefix(s.Code, "PowerState/") {
-				state = strings.TrimPrefix(s.Code, "PowerState/")
-			}
-		}
-		i := Instance{ID: v.ID, Name: v.Name, Region: v.Location, State: state, Plan: v.Properties.HardwareProfile.VMSize, Image: v.Properties.StorageProfile.ImageReference.Offer + " / " + v.Properties.StorageProfile.ImageReference.SKU, IPs: []string{}, Actions: Actions(state)}
-		if state == "running" {
-			i.Actions = append(i.Actions, "poweroff")
-		}
-		for _, nic := range v.Properties.NetworkProfile.Interfaces {
-			var n struct {
-				Properties struct {
-					Configurations []struct {
-						Properties struct {
-							Public struct{ ID string } `json:"publicIPAddress"`
-						}
-					} `json:"ipConfigurations"`
-				}
-			}
-			if e := a.call(ctx, "GET", nic.ID+"?api-version=2024-05-01", nil, &n); e != nil {
-				return nil, e
-			}
-			for _, conf := range n.Properties.Configurations {
-				if conf.Properties.Public.ID != "" {
-					var ip struct {
-						Properties struct {
-							Address string `json:"ipAddress"`
-						}
-					}
-					if e := a.call(ctx, "GET", conf.Properties.Public.ID+"?api-version=2024-05-01", nil, &ip); e != nil {
-						return nil, e
-					}
-					if ip.Properties.Address != "" {
-						i.IPs = append(i.IPs, ip.Properties.Address)
-					}
-				}
-			}
 		}
 		out = append(out, i)
 	}
 	return out, nil
 }
+func (a *Azure) hydrateVM(ctx context.Context, v azVM) (Instance, error) {
+	var full azVM
+	if e := a.call(ctx, "GET", v.ID+"?$expand=instanceView&api-version=2024-07-01", nil, &full); e != nil {
+		return Instance{}, e
+	}
+	state := strings.ToLower(full.Properties.ProvisioningState)
+	for _, s := range full.Properties.InstanceView.Statuses {
+		if strings.HasPrefix(s.Code, "PowerState/") {
+			state = strings.TrimPrefix(s.Code, "PowerState/")
+		}
+	}
+	i := Instance{ID: v.ID, Name: v.Name, Region: v.Location, State: state, Plan: v.Properties.HardwareProfile.VMSize, Image: v.Properties.StorageProfile.ImageReference.Offer + " / " + v.Properties.StorageProfile.ImageReference.SKU, IPs: []string{}, Actions: Actions(state), Disk: v.Properties.StorageProfile.OSDisk.DiskSizeGB, DiskKind: "Managed Disk 系统盘"}
+	if state == "running" {
+		i.Actions = append(i.Actions, "poweroff")
+	}
+	for _, nic := range v.Properties.NetworkProfile.Interfaces {
+		var n struct {
+			Properties struct {
+				Configurations []struct {
+					Properties struct {
+						Public struct{ ID string } `json:"publicIPAddress"`
+					}
+				} `json:"ipConfigurations"`
+			}
+		}
+		if e := a.call(ctx, "GET", nic.ID+"?api-version=2024-05-01", nil, &n); e != nil {
+			return Instance{}, e
+		}
+		for _, conf := range n.Properties.Configurations {
+			if conf.Properties.Public.ID != "" {
+				var ip struct {
+					Properties struct {
+						Address string `json:"ipAddress"`
+					}
+				}
+				if e := a.call(ctx, "GET", conf.Properties.Public.ID+"?api-version=2024-05-01", nil, &ip); e != nil {
+					return Instance{}, e
+				}
+				if ip.Properties.Address != "" {
+					i.IPs = append(i.IPs, ip.Properties.Address)
+				}
+			}
+		}
+	}
+	return i, nil
+}
+
 func (a *Azure) waitResource(ctx context.Context, id, version string) error {
 	for n := 0; n < 180; n++ {
 		var r struct {

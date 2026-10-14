@@ -91,10 +91,15 @@ func (a *AWS) call(ctx context.Context, region, action string, params url.Values
 }
 
 type awsInstance struct {
-	ID    string `xml:"instanceId"`
-	Name  string
-	Image string `xml:"imageId"`
-	Plan  string `xml:"instanceType"`
+	ID         string `xml:"instanceId"`
+	Name       string
+	Image      string `xml:"imageId"`
+	Plan       string `xml:"instanceType"`
+	Arch       string `xml:"architecture"`
+	CPUOptions struct {
+		Cores   int `xml:"coreCount"`
+		Threads int `xml:"threadsPerCore"`
+	} `xml:"cpuOptions"`
 	State struct {
 		Name string `xml:"name"`
 	} `xml:"instanceState"`
@@ -298,6 +303,7 @@ func (a *AWS) Instances(ctx context.Context, region string) ([]Instance, error) 
 		return nil, &Error{Code: "请先选择 AWS 地区"}
 	}
 	out := []Instance{}
+	seenTokens := map[string]bool{}
 	next := ""
 	for page := 0; page < 100; page++ {
 		v := url.Values{"MaxResults": {"1000"}}
@@ -333,13 +339,20 @@ func (a *AWS) Instances(ctx context.Context, region string) ([]Instance, error) 
 						ips = append(ips, ip.IP)
 					}
 				}
-				out = append(out, Instance{ID: v.ID, Name: name, Region: region, State: v.State.Name, IPs: ips, Plan: v.Plan, Image: v.Image, Actions: Actions(v.State.Name)})
+				out = append(out, Instance{ID: v.ID, Name: name, Region: region, State: v.State.Name, IPs: ips, Plan: v.Plan, Image: v.Image, Actions: Actions(v.State.Name), Architecture: Arch(v.Arch), CPU: v.CPUOptions.Cores * v.CPUOptions.Threads})
+				if len(out) > InventoryLimit {
+					return nil, &Error{Code: "AWS 实例数量超限，不能确认总数"}
+				}
 			}
 		}
 		next = res.Next
 		if next == "" {
 			return out, nil
 		}
+		if seenTokens[next] {
+			return nil, &Error{Code: "AWS 实例分页游标重复，不能确认总数"}
+		}
+		seenTokens[next] = true
 	}
 	return nil, &Error{Code: "AWS 实例分页超限"}
 }

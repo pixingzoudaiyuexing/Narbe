@@ -13,6 +13,28 @@ type linInstance struct {
 	Label, Region, Status, Type, Image string
 	IPv4                               []string
 	IPv6                               string
+	Specs                              struct{ Vcpus, Memory, Disk int }
+}
+type linType struct {
+	ID, Label           string
+	Vcpus, Memory, Disk int
+	Class               string
+	Price               struct{ Monthly, Hourly float64 }
+	Region_prices       []struct {
+		ID              string
+		Monthly, Hourly float64
+	}
+}
+
+func (p linType) choice(region string) Choice {
+	monthly, hourly := p.Price.Monthly, p.Price.Hourly
+	for _, r := range p.Region_prices {
+		if r.ID == region {
+			monthly, hourly = r.Monthly, r.Hourly
+			break
+		}
+	}
+	return Choice{ID: p.ID, Name: p.Label, Architecture: "x86_64", CPU: p.Vcpus, Memory: p.Memory, Disk: p.Disk / 1024, DiskKind: "套餐磁盘", Price: monthly, Pricing: advertisedPrice(monthly, hourly, "Linode types API（含地区价格）")}
 }
 
 func (l *Linode) pages(ctx context.Context, path string, out any) error {
@@ -29,7 +51,13 @@ func (l *Linode) pages(ctx context.Context, path string, out any) error {
 		if e := l.call(ctx, "GET", fmt.Sprintf("%s%spage_size=500&page=%d", path, sep, page), nil, &res); e != nil {
 			return e
 		}
+		if res.Data == nil || res.Pages < 1 {
+			return &Error{Code: "Linode 分页响应无效，不能确认资源数量"}
+		}
 		all = append(all, res.Data...)
+		if path == "/linode/instances" && len(all) > InventoryLimit {
+			return &Error{Code: "Linode 实例数量超限，不能确认总数"}
+		}
 		if page >= res.Pages {
 			return decode(marshal(all), out)
 		}
@@ -56,12 +84,7 @@ func (l *Linode) Catalog(ctx context.Context, region, plan string) (Catalog, err
 	if _, ok := Find(c.Regions, region); !ok {
 		return c, &Error{Code: "地区不可用"}
 	}
-	var plans []struct {
-		ID, Label           string
-		Vcpus, Memory, Disk int
-		Price               struct{ Monthly float64 }
-		Class               string
-	}
+	var plans []linType
 	if e := l.pages(ctx, "/linode/types", &plans); e != nil {
 		return c, e
 	}
@@ -80,7 +103,7 @@ func (l *Linode) Catalog(ctx context.Context, region, plan string) (Catalog, err
 			}
 		}
 		if ok {
-			c.Plans = append(c.Plans, Choice{ID: p.ID, Name: p.Label, Architecture: "x86_64", CPU: p.Vcpus, Memory: p.Memory, Disk: p.Disk / 1024, Price: p.Price.Monthly})
+			c.Plans = append(c.Plans, p.choice(region))
 		}
 	}
 	var images []struct {
@@ -134,7 +157,7 @@ func (l *Linode) Instances(ctx context.Context, region string) ([]Instance, erro
 		if v.IPv6 != "" {
 			ips = append(ips, v.IPv6)
 		}
-		out = append(out, Instance{ID: fmt.Sprint(v.ID), Name: v.Label, Region: v.Region, State: v.Status, IPs: ips, Plan: v.Type, Image: v.Image, Actions: Actions(v.Status)})
+		out = append(out, Instance{ID: fmt.Sprint(v.ID), Name: v.Label, Region: v.Region, State: v.Status, IPs: PublicIPs(ips), Plan: v.Type, Image: v.Image, Actions: Actions(v.Status), CPU: v.Specs.Vcpus, Memory: v.Specs.Memory, Disk: v.Specs.Disk / 1024, DiskKind: "套餐磁盘"})
 	}
 	return out, nil
 }

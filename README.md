@@ -4,6 +4,8 @@
 
 **当前为第一阶段候选实现，正式独立审核待完成。** 四云适配器有自动化 HTTP 合同测试，Web 流程使用真实浏览器和真实应用/数据库验证、云端使用测试替身。没有真实云账号 E2E 证据。旧 CloudPanel 官方镜像不可达，不能声称已证明全部旧版功能覆盖。详见 [覆盖与缺口](docs/COVERAGE.md) 和 [验证报告](docs/VALIDATION.md)。
 
+> 本分支正在开发 `v0.1.0-beta.2`：四云全区域总览、中文地区、配置/价格说明与HTTP弹窗修复。**正式独立审核待完成，beta.2尚未发布**；当前公开版本仍为 [beta.1](https://github.com/pixingzoudaiyuexing/Narbe/releases/tag/v0.1.0-beta.1)。
+
 ## 首个公开测试版本
 
 Owner 已确认应用提交 `5ffbf3479ad1e079b4b35efcaae837ecf08f2b3b` 正式独立复审PASS，六项Finding全部关闭。本轮提供 `v0.1.0-beta.1`，不等同真实云E2E和完整旧版覆盖最终验收，也不宣称生产稳定。

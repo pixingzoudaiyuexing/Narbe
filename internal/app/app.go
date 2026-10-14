@@ -22,14 +22,17 @@ import (
 
 type Factory func(string, cloud.Credentials) (cloud.Provider, error)
 type App struct {
-	S          *store.Store
-	Origin     string
-	Factory    Factory
-	mu         sync.Mutex
-	attempts   map[string][]time.Time
-	loginSlots chan struct{}
-	wake       chan struct{}
-	Lifecycle  *lifecycle.Service
+	S              *store.Store
+	Origin         string
+	Factory        Factory
+	mu             sync.Mutex
+	attempts       map[string][]time.Time
+	loginSlots     chan struct{}
+	wake           chan struct{}
+	Lifecycle      *lifecycle.Service
+	inventoryMu    sync.Mutex
+	inventories    map[string]*inventoryEntry
+	inventorySlots chan struct{}
 }
 type account struct {
 	ID       string `json:"id"`
@@ -67,7 +70,7 @@ type job struct {
 }
 
 func New(s *store.Store, origin string) *App {
-	return &App{S: s, Origin: strings.TrimRight(origin, "/"), Factory: cloud.New, Lifecycle: lifecycle.New(), attempts: map[string][]time.Time{}, loginSlots: make(chan struct{}, 2), wake: make(chan struct{}, 1)}
+	return &App{S: s, Origin: strings.TrimRight(origin, "/"), Factory: cloud.New, Lifecycle: lifecycle.New(), attempts: map[string][]time.Time{}, loginSlots: make(chan struct{}, 2), wake: make(chan struct{}, 1), inventories: map[string]*inventoryEntry{}, inventorySlots: make(chan struct{}, 2)}
 }
 func (a *App) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -260,8 +263,10 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 		a.accounts(w, r)
 	case strings.HasPrefix(path, "accounts/"):
 		a.accountEdit(w, r, strings.TrimPrefix(path, "accounts/"))
+	case path == "inventory" && r.Method == "GET":
+		a.inventory(w, r)
 	case path == "catalog" && r.Method == "GET":
-		_, p, e := a.provider(r.URL.Query().Get("accountId"))
+		acc, p, e := a.provider(r.URL.Query().Get("accountId"))
 		if e != nil {
 			fail(w, 400, e.Error())
 			return
@@ -285,6 +290,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 		if a.Lifecycle != nil {
 			a.Lifecycle.Enrich(ctx, &c)
 		}
+		cloud.LocalizeRegions(acc.Provider, c.Regions)
 		reply(w, 200, c)
 	case path == "instances" && r.Method == "GET":
 		_, p, e := a.provider(r.URL.Query().Get("accountId"))
@@ -360,7 +366,7 @@ func cloudFail(w http.ResponseWriter, e error) {
 }
 func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
-		rows, e := a.S.DB.Query("SELECT id,name,provider,created FROM accounts WHERE retired=0 ORDER BY created,id")
+		rows, e := a.S.DB.Query("SELECT id,name,provider,created,revision FROM accounts WHERE retired=0 ORDER BY created,id")
 		if e != nil {
 			fail(w, 500, "云账号读取失败")
 			return
@@ -369,7 +375,7 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 		items := []account{}
 		for rows.Next() {
 			var i account
-			if e = rows.Scan(&i.ID, &i.Name, &i.Provider, &i.Created); e != nil {
+			if e = rows.Scan(&i.ID, &i.Name, &i.Provider, &i.Created, &i.Revision); e != nil {
 				fail(w, 500, "云账号读取失败")
 				return
 			}
@@ -513,6 +519,12 @@ func (a *App) accountEdit(w http.ResponseWriter, r *http.Request, id string) {
 		fail(w, 500, "保存失败")
 		return
 	}
+	a.inventoryMu.Lock()
+	if entry := a.inventories[id]; entry != nil {
+		entry.cancel()
+		delete(a.inventories, id)
+	}
+	a.inventoryMu.Unlock()
 	reply(w, 200, map[string]bool{"ok": true})
 }
 func (a *App) validate(ctx context.Context, b mutation) error {

@@ -9,13 +9,14 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: narbe-v0.1.0-beta.1-release
+  group: narbe-v0.1.0-beta.2-release
   cancel-in-progress: false
 env:
-  REVIEWED_SHA: 5ffbf3479ad1e079b4b35efcaae837ecf08f2b3b
+  # Set only after the required external formal review has passed.
+  REVIEWED_SHA: ${{ vars.NARBE_BETA2_REVIEWED_SHA }}
 jobs:
   build:
-    if: github.repository == 'pixingzoudaiyuexing/Narbe'
+    if: github.repository == 'pixingzoudaiyuexing/Narbe' && vars.NARBE_BETA2_REVIEWED_SHA != ''
     strategy:
       fail-fast: false
       matrix:
@@ -31,8 +32,11 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Verify the reviewed application tree
-        run: git diff --exit-code "$REVIEWED_SHA" HEAD -- cmd internal go.mod go.sum
+      - name: Verify the reviewed application and executable packaging
+        run: |
+          set -euo pipefail
+          [[ "$REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git diff --exit-code "$REVIEWED_SHA" HEAD -- cmd internal go.mod go.sum Dockerfile .dockerignore compose.yaml scripts .github/workflows release ':(exclude)release/README.md' ':(exclude)release/NOTES.md'
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
       - name: Native build and runtime verification
         env:
@@ -40,7 +44,7 @@ jobs:
         run: |
           set -euo pipefail
           version=$(cat release/VERSION)
-          test "$version" = v0.1.0-beta.1
+          test "$version" = v0.1.0-beta.2
           host_arch=$(uname -m)
           case "$ARCH:$host_arch" in amd64:x86_64|arm64:aarch64) ;; *) exit 1 ;; esac
           builder="narbe-release-$GITHUB_RUN_ID-$ARCH"

@@ -11,6 +11,7 @@ import (
 )
 
 func (a *App) Run(ctx context.Context) {
+	defer a.stopInventories()
 	for {
 		select {
 		case <-ctx.Done():

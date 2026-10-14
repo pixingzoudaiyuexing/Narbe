@@ -1,17 +1,15 @@
-# Narbe v0.1.0-beta.1：首个公开测试版本
+# Narbe v0.1.0-beta.2 — 四云统一资源总览（候选，待正式独立审核）
 
-这是供 Owner 自行部署、接入真实云账号并测试的 Beta，不宣称生产稳定。
+本文件为候选发布说明，不代表beta.2已发布或正式审核通过。beta.1 Tag及GHCR镜像保持不变。
 
-* 支持 AWS、Azure、Linode、DigitalOcean。
-* 动态查询可用地区、服务器规格与系统镜像；支持已有服务器查询、创建与生命周期管理。
-* Go + SQLite、内嵌中文Web、单个非root轻量容器，支持Linux AMD64和ARM64。无需服务器编译Go或引入MySQL/Redis。
-* 六项独立审核问题已修复，应用基线 `5ffbf3479ad1e079b4b35efcaae837ecf08f2b3b` 的正式独立复审PASS，由Project + Product Manager本轮交付确认。
-* 安装包使用Docker Compose，首次设置独立管理员密码，数据库和master.key保存在持久化Volume，默认仅绑定loopback。
+- AWS、Azure、Linode、DigitalOcean统一账号资源数量、运行/关机/其他状态、刷新时间和查询完整性。默认全部地区；部分失败明确保留已发现资源并可重试。Azure明确限定当前资源组，非整个订阅。
+- 中文地区加原始ID，支持地区/状态/名称/IP筛选；新地区保留官方名称，不猜测位置。大列表每页最多50行。
+- CPU、内存、套餐磁盘与独立系统盘区分展示；Linode地区价格、DO小时/月USD广告价格；AWS/Azure报价未知时明确提示，不显示免费。
+- 创建表单显示配置摘要、兼容镜像与费用说明，切地区清空旧配置并忽略过期响应。公网HTTP创建/管理弹窗使用CSPRNG兼容UUID，确认及幂等安全机制不变。
+- Go + SQLite + 单个非root轻量容器，Linux AMD64/ARM64，持久化数据库和master.key，日志有界。
 
-真实四云创建、删除尚未完成E2E验收，Mock/HTTP合同/浏览器与Docker验证不能作为真实云成功证明。原CloudPanel完整功能覆盖仍有证据缺口。
+beta.1六项独立审核修复仍保留；beta.2必须针对新增聚合查询与操作身份边界完成新的正式独立审核，内部agy支持及CI不能替代。
 
-**Azure删除VM后，关联磁盘和公网IP等资源可能继续计费。** 查看删除任务的账本和未知提示，并到Azure控制台逐项核实；Narbe不会自动扩大删除范围。
+真实验证严格分级：Owner授权的现有Linode账号完成新版适配器只读地区、规格与跨地区实例查询；其他三云为HTTP合同与浏览器API替身验证。四云真实创建/删除E2E仍未完成，原CloudPanel完整覆盖仍有证据缺口。Azure删除VM后关联磁盘、公网IP等可能继续计费。
 
-请优先使用SSH隧道或有效HTTPS反向代理，正确设置NARBE_ORIGIN。升级前备份包含数据库与master.key的完整Volume；不要执行down -v或全局prune。
-
-安装与状态/日志/持久化/升级说明见安装包README或仓库 `release/README.md`。版本、构建SHA、镜像digest和发布工作流证据随本Release附件提供。原PR #1仍为Draft，main没有合并。
+适用于自行测试，不宣称生产稳定。安装及beta.1无损升级说明见安装包README，正式发行时附准确构建SHA、审核SHA、镜像digest和原生架构验证记录。
