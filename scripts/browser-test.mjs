@@ -11,6 +11,10 @@ const browser = await chromium.launch({ executablePath, headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
+// Exercise real confirmation/retry flows through the HTTP-compatible UUID path.
+await page.addInitScript(() => {
+  Object.defineProperty(Crypto.prototype, "randomUUID", { value: undefined });
+});
 const screenshotDir = process.env.NARBE_SCREENSHOT_DIR || "test-results";
 fs.mkdirSync(screenshotDir, { recursive: true });
 try {
@@ -194,6 +198,18 @@ try {
     submissionIds[0],
     submissionIds[1],
     "retry changed the immutable intent ID",
+  );
+  assert.ok(
+    submissionIds.every((id) =>
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+        id,
+      ),
+    ),
+    "fallback must preserve UUID v4 format",
+  );
+  assert.ok(
+    new Set(submissionIds).size > 1,
+    "separate dialogs must not reuse an intent ID",
   );
   assert.deepEqual(errors, [], "browser errors");
   console.log(

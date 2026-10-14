@@ -8,6 +8,7 @@ const state = {
   region: "",
   catalog: null,
   instances: [],
+  instancesLoaded: false,
   jobs: [],
   error: "",
   loading: false,
@@ -57,6 +58,19 @@ const esc = (s) =>
       ],
   );
 const account = () => state.accounts.find((a) => a.id === state.accountId);
+const supportsAllRegions = () => account()?.provider !== "aws";
+function intentID() {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  // getRandomValues remains available on HTTP. Preserve UUID v4 entropy and
+  // the immutable per-dialog ID; never fall back to Math.random or timestamps.
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 15) | 64;
+  bytes[8] = (bytes[8] & 63) | 128;
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join(
+    "",
+  );
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 const date = (t) =>
   new Date(t * 1000).toLocaleString("zh-CN", { hour12: false });
 function badge(s) {
@@ -139,6 +153,7 @@ function login() {
       form.reset();
       await loadAccounts();
       shell();
+      if (state.accountId) await refresh(true);
     });
   };
 }
@@ -163,6 +178,7 @@ async function loadAccounts() {
     state.region = "";
     state.catalog = null;
     state.instances = [];
+    state.instancesLoaded = false;
   }
 }
 function shell() {
@@ -217,6 +233,19 @@ function render() {
   else renderInstances(content);
 }
 function renderInstances(el) {
+  const allRegions = supportsAllRegions();
+  const scope = state.region
+    ? "所选地区"
+    : !allRegions
+      ? "请选择地区（尚未查询总数）"
+      : account()?.provider === "azure"
+        ? "当前资源组 · 全部地区"
+        : "当前账号 · 全部地区";
+  const count = state.loading
+    ? "…"
+    : state.instancesLoaded
+      ? state.instances.length
+      : "—";
   el.innerHTML =
     heading(
       "服务器",
@@ -232,9 +261,9 @@ function renderInstances(el) {
             })),
             state.accountId,
             "选择账号",
-          )}</select></label><label>地区<select id="region" ${!state.catalog ? "disabled" : ""}>${options(state.catalog?.regions, state.region, "选择地区")}</select></label><span class="grow"></span><button id="refresh" ${state.loading ? "disabled" : ""}>${state.loading ? "正在刷新…" : "↻ 刷新资源"}</button></div>`
+          )}</select></label><label>地区<select id="region" ${!state.catalog ? "disabled" : ""}>${options(state.catalog?.regions, state.region, allRegions ? "全部地区" : "选择地区")}</select></label><span class="grow"></span><button id="refresh" ${state.loading ? "disabled" : ""}>${state.loading ? "正在刷新…" : "↻ 刷新资源"}</button></div>`
         : ""
-    }<div class="error-box" role="alert">${esc(state.error)}</div>${state.jobs.some((j) => j.state === "unknown") ? '<div class="notice">有操作结果待核实。请到「操作任务」检查云端结果后再继续。</div>' : ""}<section class="panel"><div class="panel-head"><h2>实例列表<span class="count">${state.instances.length}</span></h2><span class="help">${account() ? esc(providers[account().provider]) : "尚未接入云账号"}</span></div>${state.loading ? '<div class="loading" role="status">正在从云账号查询资源…</div>' : !state.accounts.length ? '<div class="empty"><div class="empty-icon">◈</div><h2>先接入你的第一个云账号</h2><p>连接 AWS、Azure、Linode 或 DigitalOcean，<br>即可在这里查看和管理服务器。</p><button class="primary" id="connect">接入云账号 →</button></div>' : !state.region ? '<div class="empty"><div class="empty-icon">⌖</div><h2>选择一个地区</h2><p>先刷新账号目录，再选择地区查看服务器。</p><button id="load-regions">加载可用地区</button></div>' : !state.instances.length ? '<div class="empty"><div class="empty-icon">▦</div><h2>这个地区还没有服务器</h2><p>可以创建新服务器，或切换其他地区。<br>创建前会展示配置并要求确认。</p><button class="primary" id="empty-create">创建服务器</button></div>' : `<p class="scroll-hint">← 左右滑动表格查看 IP 与操作 →</p><div class="table-wrap"><table><thead><tr><th>服务器</th><th>状态</th><th>公网 IP</th><th>规格 / 地区</th><th>操作</th></tr></thead><tbody>${state.instances.map((i, n) => `<tr><td><div class="name">${esc(i.name)}</div><div class="secondary mono" title="${esc(i.id)}">${esc(i.id)}</div></td><td>${badge(i.state)}</td><td>${i.ips?.length ? i.ips.map((ip) => `<div class="mono">${esc(ip)}</div>`).join("") : '<span class="help">未分配</span>'}</td><td>${esc(i.plan)}<div class="secondary">${esc(i.region)}</div></td><td><div class="row-actions"><select aria-label="${esc(i.name)} 的操作" data-action-select="${n}">${i.actions.map((a) => `<option value="${a}">${esc(labels[a])}</option>`).join("")}</select><button data-action="${n}">执行</button></div></td></tr>`).join("")}</tbody></table></div>`}</section><p class="footer-note">状态来自云厂商。停止实例后，磁盘、网络和保留 IP 仍可能计费。${account()?.provider === "azure" ? "Azure 删除仅删除虚拟机，保留磁盘、网卡与公网 IP。" : ""}</p>`;
+    }<div class="error-box" role="alert">${esc(state.error)}</div>${state.jobs.some((j) => j.state === "unknown") ? '<div class="notice">有操作结果待核实。请到「操作任务」检查云端结果后再继续。</div>' : ""}<section class="panel"><div class="panel-head"><h2>实例列表<span class="count">${count}</span></h2><span class="help">${account() ? esc(providers[account().provider] + " · " + scope) : "尚未接入云账号"}</span></div>${state.loading ? '<div class="loading" role="status">正在从云账号查询资源…</div>' : !state.accounts.length ? '<div class="empty"><div class="empty-icon">◈</div><h2>先接入你的第一个云账号</h2><p>连接 AWS、Azure、Linode 或 DigitalOcean，<br>即可在这里查看和管理服务器。</p><button class="primary" id="connect">接入云账号 →</button></div>' : state.error ? '<div class="empty"><h2>服务器查询失败</h2><p>当前数量未确认，请刷新重试。</p></div>' : !state.region && !allRegions ? '<div class="empty"><div class="empty-icon">⌖</div><h2>选择一个地区</h2><p>先刷新账号目录，再选择地区查看服务器。</p><button id="load-regions">加载可用地区</button></div>' : !state.instances.length ? `<div class="empty"><div class="empty-icon">▦</div><h2>${state.region ? "这个地区还没有服务器" : "当前范围还没有服务器"}</h2><p>可以创建新服务器，或切换其他地区。<br>创建前会展示配置并要求确认。</p><button class="primary" id="empty-create">创建服务器</button></div>` : `<p class="scroll-hint">← 左右滑动表格查看 IP 与操作 →</p><div class="table-wrap"><table><thead><tr><th>服务器</th><th>状态</th><th>公网 IP</th><th>规格 / 地区</th><th>操作</th></tr></thead><tbody>${state.instances.map((i, n) => `<tr><td><div class="name">${esc(i.name)}</div><div class="secondary mono" title="${esc(i.id)}">${esc(i.id)}</div></td><td>${badge(i.state)}</td><td>${i.ips?.length ? i.ips.map((ip) => `<div class="mono">${esc(ip)}</div>`).join("") : '<span class="help">未分配</span>'}</td><td>${esc(i.plan)}<div class="secondary">${esc(i.region)}</div></td><td><div class="row-actions"><select aria-label="${esc(i.name)} 的操作" data-action-select="${n}">${i.actions.map((a) => `<option value="${a}">${esc(labels[a])}</option>`).join("")}</select><button data-action="${n}">执行</button></div></td></tr>`).join("")}</tbody></table></div>`}</section><p class="footer-note">状态来自云厂商。停止实例后，磁盘、网络和保留 IP 仍可能计费。${account()?.provider === "azure" ? "Azure 删除仅删除虚拟机，保留磁盘、网卡与公网 IP。" : ""}</p>`;
   el.querySelector("#create")?.addEventListener("click", createDialog);
   el.querySelector("#empty-create")?.addEventListener("click", createDialog);
   el.querySelector("#connect")?.addEventListener("click", () =>
@@ -251,6 +280,7 @@ function renderInstances(el) {
     state.region = "";
     state.catalog = null;
     state.instances = [];
+    state.instancesLoaded = false;
     refresh(true);
   });
   el.querySelector("#region")?.addEventListener("change", (e) => {
@@ -273,6 +303,8 @@ async function refresh(catalog = false) {
     aid = state.accountId,
     region = state.region;
   state.loading = true;
+  state.instancesLoaded = false;
+  state.instances = [];
   state.error = "";
   render();
   try {
@@ -281,12 +313,13 @@ async function refresh(catalog = false) {
       if (gen !== state.generation) return;
       state.catalog = c;
     }
-    if (region) {
+    if (region || supportsAllRegions()) {
       const items = await api(
         "instances?" + new URLSearchParams({ accountId: aid, region }),
       );
       if (gen !== state.generation) return;
       state.instances = items;
+      state.instancesLoaded = true;
     }
   } catch (e) {
     if (gen === state.generation) state.error = e.message;
@@ -401,6 +434,7 @@ function renderAccounts(el) {
         state.region = "";
         state.catalog = null;
         state.instances = [];
+        state.instancesLoaded = false;
         state.tab = "instances";
         shell();
         refresh(true);
@@ -431,7 +465,7 @@ function renderAccounts(el) {
   );
 }
 async function createDialog() {
-  const intentId = crypto.randomUUID();
+  const intentId = intentID();
   if (!account()) return;
   const aid = state.accountId,
     provider = account().provider;
@@ -579,7 +613,7 @@ async function submit(body) {
   toast("操作已提交，请查看任务进度");
 }
 function actionDialog(i, action) {
-  const intentId = crypto.randomUUID();
+  const intentId = intentID();
   if (!action) return;
   const provider = account().provider;
   let warning =

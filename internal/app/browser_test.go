@@ -67,4 +67,12 @@ func TestBrowser(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	regression := exec.Command("node", filepath.Join(repo, "scripts/browser-regressions.mjs"), server.URL)
+	regression.Dir = repo
+	regression.Env = os.Environ()
+	out, e = regression.CombinedOutput()
+	t.Log(string(out))
+	if e != nil {
+		t.Fatal(e)
+	}
 }
