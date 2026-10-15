@@ -1,3 +1,7 @@
+当前beta.4（四云创建初始化脚本及Linode StackScripts）正式独立审核 REQUIRED / PENDING。beta.3应用与发行配置均已通过正式审核并发布，其PASS不覆盖本轮新增代码。当前交付矩阵/截图、真实与Mock分级见 [BETA4_DELIVERY.md](BETA4_DELIVERY.md)，官方接口与安全限制见 [BETA4_SOURCES.md](BETA4_SOURCES.md)。本轮不发布beta.4、不改Owner部署、main或旧Tag/镜像。
+
+以下为历史审核记录，各PENDING/PASS只对各自基线生效。
+
 当前 beta.3（Linode高级管理与四云大洲分组）的正式独立审核 REQUIRED / PENDING。beta.2已正式审核并发布，其PASS不覆盖本轮新增功能。九项能力、内部复核、测试和真实云缺口见 [BETA3_DELIVERY.md](BETA3_DELIVERY.md)。beta.3未发布；本轮不修改release可执行文件或发布beta.2变量，不能复用旧审核SHA发布新代码。
 
 以下为历史记录，历史PENDING/PASS各自只对应原基线。

@@ -2,13 +2,13 @@
 
 轻量、中文优先的单用户多云服务器工作台。Go + SQLite + 内嵌 Web，单个非 root Docker 容器，无 MySQL、Redis 或前端运行时。
 
-**已发布版本为 [v0.1.0-beta.2](https://github.com/pixingzoudaiyuexing/Narbe/releases/tag/v0.1.0-beta.2)**，正式审核结论为PASS WITH CONDITIONS — RELEASE APPROVED，双架构GHCR镜像及完整安装/升级已验证。测试版不宣称生产稳定；真实四云创建/删除E2E与旧CloudPanel完整功能覆盖仍有缺口。
+**已发布版本为 [v0.1.0-beta.3](https://github.com/pixingzoudaiyuexing/Narbe/releases/tag/v0.1.0-beta.3)**，应用和发行配置已分别正式审核，双架构GHCR镜像、匿名安装及beta.2升级已验证。测试版不宣称生产稳定；真实云写E2E与旧CloudPanel完整覆盖仍有缺口。
 
-> 本分支新增 `v0.1.0-beta.3` 候选：Linode九项高级管理、流量/监控/账单/防火墙，以及四云地区大洲分组。**本轮正式独立审核 REQUIRED / PENDING；beta.3未发布，不合并main。** 覆盖矩阵、范围限制和截图见 [候选交付](docs/BETA3_DELIVERY.md)。beta.2原Tag和镜像保留。
+> 本分支新增 `v0.1.0-beta.4` 候选：四云创建初始化脚本、Linode Metadata/StackScripts与动态UDF。**本轮正式Independent Review REQUIRED / PENDING，不发布beta.4、不合并main、不修改Owner部署。** 覆盖与截图见 [BETA4_DELIVERY.md](docs/BETA4_DELIVERY.md)；API/限制及日志说明见 [BETA4_SOURCES.md](docs/BETA4_SOURCES.md)。
 
 ## 已发布测试版安装
 
-从 [beta.2 Release](https://github.com/pixingzoudaiyuexing/Narbe/releases/tag/v0.1.0-beta.2) 下载官方安装包，服务器无需编译源码。版本与digest固定，不使用latest。安装/无损升级见 [发布说明](release/README.md)；下文仍保留源码开发流程。
+从 [beta.3 Release](https://github.com/pixingzoudaiyuexing/Narbe/releases/tag/v0.1.0-beta.3) 下载官方安装包，服务器无需编译源码。版本与digest固定，不使用latest。安装/无损升级见 [发布说明](release/README.md)；下文仍保留源码开发流程。
 
 ## 安装
 
