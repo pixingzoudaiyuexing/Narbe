@@ -69,3 +69,20 @@ assert.equal(serverStateLabel("future-state"), "其他状态（future-state）")
 
 assert.equal(serverStateLabel("stopped", "azure"), "已关机（计算仍计费）");
 assert.equal(serverStateLabel("stopped", "aws"), "已关机");
+
+const startup = await import("../internal/web/assets/startup-format.js");
+const { createHash } = await import("node:crypto");
+for (const text of ["", "abc", '中文💻\n"quoted" <> &', "x".repeat(65536)])
+  assert.equal(
+    startup.startupHash(text),
+    createHash("sha256").update(text).digest("hex"),
+  );
+assert.equal(
+  startup.stackParameterJSON({ value: "usual2028中文\u2028", A: "<>&" }),
+  '{"A":"\\u003c\\u003e\\u0026","value":"usual2028中文\\u2028"}',
+);
+assert.equal(startup.utf8Bytes("中文💻"), 10);
+assert.equal(startup.startupLimits.linode, 49149);
+console.log(
+  "PASS: startup SHA256 vectors, canonical StackScript parameters, UTF-8 bytes and limits",
+);

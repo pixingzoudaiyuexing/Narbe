@@ -347,6 +347,12 @@ func (a *Azure) waitResource(ctx context.Context, id, version string) error {
 	return &Error{Code: "Azure 配置等待超时", Uncertain: true}
 }
 func (a *Azure) Create(ctx context.Context, s Spec, token string) (Operation, error) {
+	if e := ValidateStartupText("azure", s); e != nil {
+		return Operation{}, e
+	}
+	if s.UserData != "" && Family(s.Image) == "windows" {
+		return Operation{}, errors.New("Azure Windows customData不会自动执行脚本")
+	}
 	op := a.Plan(s, token)
 	vmid := op.ResourceID
 	name := vmid[strings.LastIndex(vmid, "/")+1:]

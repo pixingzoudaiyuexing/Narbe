@@ -2,6 +2,7 @@ package cloud
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"time"
@@ -78,7 +79,7 @@ func (l *Linode) Catalog(ctx context.Context, region, plan string) (Catalog, err
 	}
 	for _, r := range regions {
 		if r.Status == "ok" && contains(r.Capabilities, "Linodes") {
-			c.Regions = append(c.Regions, Choice{ID: r.ID, Name: r.Label, Extra: map[string]string{"siteType": r.Site_type, "linodeInterfaces": fmt.Sprint(contains(r.Capabilities, "Linode Interfaces"))}})
+			c.Regions = append(c.Regions, Choice{ID: r.ID, Name: r.Label, Extra: map[string]string{"siteType": r.Site_type, "linodeInterfaces": fmt.Sprint(contains(r.Capabilities, "Linode Interfaces")), "metadata": fmt.Sprint(contains(r.Capabilities, "Metadata"))}})
 		}
 	}
 	if region == "" {
@@ -132,7 +133,12 @@ func (l *Linode) Catalog(ctx context.Context, region, plan string) (Catalog, err
 		if arch == "" {
 			arch = "x86_64"
 		}
-		c.Images = append(c.Images, Choice{ID: im.ID, Name: im.Label, Architecture: arch, Family: Family(im.Label), Disk: (im.Size + 1023) / 1024})
+		c.Images = append(c.Images, Choice{ID: im.ID, Name: im.Label, Architecture: arch, Family: Family(im.Label), Disk: (im.Size + 1023) / 1024, StartupSupport: func() string {
+			if contains(im.Capabilities, "cloud-init") {
+				return "cloud-init"
+			}
+			return "unsupported"
+		}()})
 	}
 	var keys []struct {
 		ID             int
@@ -175,8 +181,30 @@ func (l *Linode) Create(ctx context.Context, s Spec, token string) (Operation, e
 	if s.SSHPublicKey != "" {
 		body["authorized_keys"] = []string{s.SSHPublicKey}
 	}
-	if s.UserData != "" {
-		return Operation{}, &Error{Code: "此适配器不接受初始化脚本，请使用 SSH 配置"}
+	if e := ValidateStartupText("linode", s); e != nil {
+		return Operation{}, e
+	}
+	if s.UserData != "" || s.ScriptMode == "stackscript" {
+		c, e := l.Catalog(ctx, s.Region, s.Plan)
+		if e != nil {
+			return Operation{}, e
+		}
+		if e = ValidateStartup("linode", s, c); e != nil {
+			return Operation{}, e
+		}
+		if s.ScriptMode == "stackscript" {
+			if e = l.ValidateStackScript(ctx, s); e != nil {
+				return Operation{}, e
+			}
+			body["stackscript_id"] = s.StackScriptID
+			params := s.StackScriptData
+			if params == nil {
+				params = map[string]string{}
+			}
+			body["stackscript_data"] = params
+		} else {
+			body["metadata"] = map[string]string{"user_data": base64.StdEncoding.EncodeToString([]byte(s.UserData))}
+		}
 	}
 	op := Operation{Region: s.Region, Expected: "running", Linode: &LinodeOperation{Action: "create", Firewall: s.Firewall}}
 	if s.Firewall != nil && s.Firewall.Mode != "all" {

@@ -98,7 +98,11 @@ func (a *App) Handler() http.Handler {
 			fail(w, 403, "请求来源无效，请重新打开面板")
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, 128<<10)
+		bodyLimit := int64(128 << 10)
+		if r.Method == "POST" && (r.URL.Path == "/api/confirm" || r.URL.Path == "/api/jobs") {
+			bodyLimit = 1 << 20
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, bodyLimit)
 		mux.ServeHTTP(w, r)
 	})
 }
@@ -265,6 +269,8 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 		a.accounts(w, r)
 	case strings.HasPrefix(path, "accounts/"):
 		a.accountEdit(w, r, strings.TrimPrefix(path, "accounts/"))
+	case path == "stackscripts" && r.Method == "GET":
+		a.stackScripts(w, r)
 	case path == "linode" && r.Method == "GET":
 		a.linodeRead(w, r)
 	case path == "inventory" && r.Method == "GET":
@@ -550,6 +556,9 @@ func (a *App) validate(ctx context.Context, b mutation) error {
 	if b.Name == "" || b.ConfirmName != b.Name {
 		return errors.New("请输入准确的资源名称确认操作")
 	}
+	if b.Action != "create" && (b.Spec.UserData != "" || b.Spec.ScriptMode != "" && b.Spec.ScriptMode != "none" || b.Spec.StackScriptID != 0 || b.Spec.StackScriptSnapshot != "" || b.Spec.StackScriptName != "" || len(b.Spec.StackScriptData) > 0 || b.Spec.ScriptCompatibilityAck) {
+		return errors.New("初始化脚本仅可用于新建服务器")
+	}
 	if cloud.LinodeAction(b.Action) {
 		if acc.Provider != "linode" {
 			return errors.New("高级管理仅支持Linode")
@@ -569,6 +578,18 @@ func (a *App) validate(ctx context.Context, b mutation) error {
 		}
 		if e = cloud.ValidateSpec(b.Spec, c); e != nil {
 			return e
+		}
+		if e = cloud.ValidateStartup(acc.Provider, b.Spec, c); e != nil {
+			return e
+		}
+		if b.Spec.ScriptMode == "stackscript" {
+			ss, ok := p.(cloud.StackScriptProvider)
+			if !ok {
+				return errors.New("该适配器不支持StackScripts")
+			}
+			if e = ss.ValidateStackScript(ctx, b.Spec); e != nil {
+				return e
+			}
 		}
 		s := b.Spec
 		if acc.Provider != "linode" && s.Firewall != nil {
@@ -680,8 +701,8 @@ func (a *App) validate(ctx context.Context, b mutation) error {
 			if e := cloud.ValidateLinodePassword(s.Password); e != nil {
 				return e
 			}
-			if s.UserData != "" || s.Disk != 0 {
-				return errors.New("Linode 在此处不支持初始化脚本或自定义磁盘大小")
+			if s.Disk != 0 {
+				return errors.New("Linode 在此处不支持自定义磁盘大小")
 			}
 			if s.Key != "" {
 				k, _ := cloud.Find(c.Keys, s.Key)
@@ -740,6 +761,22 @@ func (a *App) submit(w http.ResponseWriter, r *http.Request) {
 	}
 	confirmation := b.Confirmation
 	b.Confirmation = ""
+	if b.Action == "create" && b.Spec.ScriptMode == "stackscript" {
+		var exists int
+		e := a.S.DB.QueryRow("SELECT count(*) FROM jobs WHERE id=?", b.ID).Scan(&exists)
+		if e != nil {
+			fail(w, 500, "任务读取失败")
+			return
+		}
+		if exists == 0 {
+			ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+			defer cancel()
+			if e = a.validate(ctx, b); e != nil {
+				cloudFail(w, e)
+				return
+			}
+		}
+	}
 	raw, _ := json.Marshal(b)
 	sealed, e := a.S.Seal(raw, "job:"+b.ID)
 	if e != nil {

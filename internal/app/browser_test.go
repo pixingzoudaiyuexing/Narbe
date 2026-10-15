@@ -84,4 +84,13 @@ func TestBrowser(t *testing.T) {
 		t.Fatal(e)
 	}
 
+	startup := exec.Command("node", filepath.Join(repo, "scripts/browser-startup.mjs"), server.URL)
+	startup.Dir = repo
+	startup.Env = os.Environ()
+	out, e = startup.CombinedOutput()
+	t.Log(string(out))
+	if e != nil {
+		t.Fatal(e)
+	}
+
 }

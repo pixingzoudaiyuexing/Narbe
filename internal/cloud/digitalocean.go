@@ -156,6 +156,9 @@ func (d *DigitalOcean) Instances(ctx context.Context, region string) ([]Instance
 	return out, nil
 }
 func (d *DigitalOcean) Create(ctx context.Context, s Spec, token string) (Operation, error) {
+	if e := ValidateStartupText("digitalocean", s); e != nil {
+		return Operation{}, e
+	}
 	body := map[string]any{"name": s.Name, "region": s.Region, "size": s.Plan, "image": mustInt(s.Image), "ipv6": s.IPv6, "backups": s.Backups, "tags": []string{"narbe-" + token}, "user_data": s.UserData}
 	if s.Key != "" {
 		body["ssh_keys"] = []int{mustInt(s.Key)}

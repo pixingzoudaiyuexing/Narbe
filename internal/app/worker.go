@@ -36,7 +36,7 @@ func (a *App) finish(id, state, progress string, op cloud.Operation, err error) 
 		msg = err.Error()
 	}
 	var result []byte
-	if op.ResourceID != "" {
+	if op.ResourceID != "" || op.Startup != nil {
 		result, _ = json.Marshal(op)
 	}
 	_, _ = a.S.DB.Exec("UPDATE jobs SET state=?,progress=?,result=COALESCE(?,result),error=?,updated=? WHERE id=? AND state='running'", state, progress, result, msg, store.Now(), id)
@@ -133,6 +133,12 @@ func (a *App) runOne(parent context.Context) bool {
 	}
 	ctx = cloud.WithDispatchDeadline(ctx, time.Unix(created, 0).Add(store.MaxQueuedAge))
 	ctx = cloud.WithOperationRecorder(ctx, func(checkpoint cloud.Operation) error {
+		if b.Action == "create" {
+			checkpoint.Startup = cloud.SummarizeStartup(b.Spec)
+			if checkpoint.Startup != nil && checkpoint.ResourceID != "" {
+				checkpoint.Startup.Execution = "submitted-unverified"
+			}
+		}
 		raw, e := json.Marshal(checkpoint)
 		if e != nil {
 			return e
@@ -147,6 +153,7 @@ func (a *App) runOne(parent context.Context) bool {
 		}
 		return nil
 	})
+	startup := cloud.SummarizeStartup(b.Spec)
 	ledger := op.Ledger
 	if cloud.LinodeAction(b.Action) {
 		advanced, ok := p.(cloud.LinodeAdvanced)
@@ -159,6 +166,14 @@ func (a *App) runOne(parent context.Context) bool {
 		op, e = p.Create(ctx, b.Spec, id)
 	} else {
 		op, e = p.Action(ctx, cloud.Instance{ID: b.Target, Name: b.Name, Region: b.Region}, b.Action, id)
+	}
+	if startup != nil {
+		op.Startup = startup
+		if e == nil {
+			startup.Execution = "submitted-unverified"
+		} else if cloud.Uncertain(e) || len(op.Owned) > 0 {
+			startup.Execution = "submission-unknown"
+		}
 	}
 	if ledger != nil {
 		op.Ledger = ledger
@@ -220,6 +235,9 @@ func (a *App) runOne(parent context.Context) bool {
 			}
 			if op.Ledger != nil {
 				progress = "虚拟机已删除；关联资源及费用未核实，请到 Azure 控制台检查"
+			}
+			if startup != nil {
+				progress += "；" + cloud.StartupNotice
 			}
 			a.finish(id, "succeeded", progress, op, nil)
 			return true

@@ -2,6 +2,7 @@ package cloud
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -301,11 +302,19 @@ func TestAzureCreateUsesDiskAPIVersionAndRecordsNetworkLedger(t *testing.T) {
 		t.Fatal(r.Method)
 		return nil, nil
 	})
-	op, e := a.Create(context.Background(), Spec{Name: "test", Region: "r", Image: "Canonical|ubuntu|sku|version", Network: a.group() + "/providers/Microsoft.Network/virtualNetworks/net/subnets/default", Username: "narbe", SSHPublicKey: "ssh-ed25519 fixture", ManagementCIDR: "192.0.2.1/32"}, "abcdefghijklmnop")
+	op, e := a.Create(context.Background(), Spec{ScriptMode: "cloud-config", UserData: "#cloud-config\nruncmd:\n - echo '中文 $HOME'\n", Name: "test", Region: "r", Image: "Canonical|ubuntu|sku|version", Network: a.group() + "/providers/Microsoft.Network/virtualNetworks/net/subnets/default", Username: "narbe", SSHPublicKey: "ssh-ed25519 fixture", ManagementCIDR: "192.0.2.1/32"}, "abcdefghijklmnop")
 	if e != nil || gets != 1 || len(op.Owned) != 4 || len(created) != 4 || vmBody == nil {
 		t.Fatal(op, e, gets, created)
 	}
 	props := vmBody["properties"].(map[string]any)
+	profile := props["osProfile"].(map[string]any)
+	raw, err := base64.StdEncoding.DecodeString(profile["customData"].(string))
+	if err != nil || string(raw) != "#cloud-config\nruncmd:\n - echo '中文 $HOME'\n" {
+		t.Fatal("Azure customData encoding changed", err)
+	}
+	if _, ok := props["userData"]; ok {
+		t.Fatal("Azure userData misused")
+	}
 	disk := props["storageProfile"].(map[string]any)["osDisk"].(map[string]any)
 	if !strings.HasSuffix(op.Owned[3], "/"+disk["name"].(string)) {
 		t.Fatal("disk ledger mismatch")

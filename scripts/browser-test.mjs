@@ -53,6 +53,11 @@ try {
     path: screenshotDir + "/create-desktop.png",
     fullPage: true,
   });
+  const startupFixture =
+    '#!/bin/bash\nprintf "%s\n" "private-browser-script-fixture"\n';
+  await page.locator("#create-form [name=scriptMode]").selectOption("shell");
+  await page.locator("#create-form [name=userData]").fill(startupFixture);
+  await page.locator("#create-form [name=scriptCompatibilityAck]").check();
   const submissionIds = [];
   let loseResponse = true;
   await page.route("**/api/jobs", async (route) => {
@@ -87,6 +92,23 @@ try {
     })
     .getByText("已完成", { exact: true })
     .waitFor();
+  const startupRow = page.locator(".task-row").filter({
+    has: page.getByRole("heading", {
+      name: "创建服务器 · browser-server",
+      exact: true,
+    }),
+  });
+  await startupRow
+    .getByText("初始化脚本已提交，实际执行结果请登录服务器检查。", {
+      exact: false,
+    })
+    .first()
+    .waitFor();
+  await startupRow.locator(".startup-ledger summary").click();
+  assert.ok(
+    !(await startupRow.innerText()).includes("private-browser-script-fixture"),
+  );
+  assert.ok((await startupRow.innerText()).includes("cloud-init-output.log"));
   const ledgerRow = page.locator(".task-row").filter({
     has: page.getByRole("heading", {
       name: "删除服务器 · azure-ledger-server",

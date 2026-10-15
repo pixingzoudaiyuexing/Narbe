@@ -16,6 +16,7 @@ import (
 
 type Credentials map[string]string
 type Choice struct {
+	StartupSupport string            `json:"startupSupport,omitempty"`
 	Continent      string            `json:"continent,omitempty"`
 	ID             string            `json:"id"`
 	Name           string            `json:"name"`
@@ -67,23 +68,29 @@ type Catalog struct {
 	Groups   []Choice `json:"groups"`
 }
 type Spec struct {
-	Firewall       *FirewallSelection `json:"firewall,omitempty"`
-	Name           string             `json:"name"`
-	Region         string             `json:"region"`
-	Plan           string             `json:"plan"`
-	Image          string             `json:"image"`
-	Architecture   string             `json:"architecture"`
-	Network        string             `json:"network"`
-	Group          string             `json:"group"`
-	Key            string             `json:"key"`
-	SSHPublicKey   string             `json:"sshPublicKey"`
-	Password       string             `json:"password"`
-	Username       string             `json:"username"`
-	UserData       string             `json:"userData"`
-	IPv6           bool               `json:"ipv6"`
-	Backups        bool               `json:"backups"`
-	Disk           int                `json:"disk"`
-	ManagementCIDR string             `json:"managementCidr"`
+	ScriptMode             string             `json:"scriptMode,omitempty"`
+	ScriptCompatibilityAck bool               `json:"scriptCompatibilityAck,omitempty"`
+	StackScriptID          int                `json:"stackscriptId,omitempty"`
+	StackScriptData        map[string]string  `json:"stackscriptData,omitempty"`
+	StackScriptSnapshot    string             `json:"stackscriptSnapshot,omitempty"`
+	StackScriptName        string             `json:"stackscriptName,omitempty"`
+	Firewall               *FirewallSelection `json:"firewall,omitempty"`
+	Name                   string             `json:"name"`
+	Region                 string             `json:"region"`
+	Plan                   string             `json:"plan"`
+	Image                  string             `json:"image"`
+	Architecture           string             `json:"architecture"`
+	Network                string             `json:"network"`
+	Group                  string             `json:"group"`
+	Key                    string             `json:"key"`
+	SSHPublicKey           string             `json:"sshPublicKey"`
+	Password               string             `json:"password"`
+	Username               string             `json:"username"`
+	UserData               string             `json:"userData"`
+	IPv6                   bool               `json:"ipv6"`
+	Backups                bool               `json:"backups"`
+	Disk                   int                `json:"disk"`
+	ManagementCIDR         string             `json:"managementCidr"`
 }
 type RelatedResource struct {
 	ID    string `json:"id"`
@@ -97,6 +104,7 @@ type ResourceLedger struct {
 	Resources   []RelatedResource `json:"resources,omitempty"`
 }
 type Operation struct {
+	Startup    *StartupSummary  `json:"startup,omitempty"`
 	Linode     *LinodeOperation `json:"linode,omitempty"`
 	ResourceID string           `json:"resourceId"`
 	PollURL    string           `json:"pollUrl,omitempty"`
@@ -205,9 +213,6 @@ func ValidateSpec(s Spec, c Catalog) error {
 	}
 	if s.Architecture != "" && im.Architecture != "" && s.Architecture != im.Architecture {
 		return errors.New("镜像架构已变化，请重新选择")
-	}
-	if len(s.UserData) > 32768 {
-		return errors.New("初始化脚本过长")
 	}
 	if s.Network != "" {
 		if _, ok := Find(c.Networks, s.Network); !ok {

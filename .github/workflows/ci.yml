@@ -26,11 +26,11 @@ jobs:
       - run: python3 release/test_bundle.py
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - run: npm ci --ignore-scripts
-      - run: npx prettier --check internal/web/assets scripts/browser-test.mjs scripts/browser-regressions.mjs scripts/browser-linode.mjs scripts/format-test.mjs
+      - run: npx prettier --check internal/web/assets scripts/browser-test.mjs scripts/browser-regressions.mjs scripts/browser-linode.mjs scripts/browser-startup.mjs scripts/format-test.mjs
       - run: node scripts/format-test.mjs
       - run: npx playwright install --with-deps chromium
       - run: NARBE_BROWSER_TEST=1 go test ./internal/app -run TestBrowser -v -timeout=180s
       - run: docker build -t narbe/ci:check .
       - run: NARBE_IMAGE=narbe/ci:check python3 scripts/test_runtime.py
-      - run: docker pull ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.2@sha256:e9817422e60506d60e1988f22caf7ce4fdd49e9dc350cfb3b11f41aa69870fd6
-      - run: python3 scripts/test_upgrade.py --old-image ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.2@sha256:e9817422e60506d60e1988f22caf7ce4fdd49e9dc350cfb3b11f41aa69870fd6 --new-image narbe/ci:check
+      - run: docker pull ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.3@sha256:1448084e11d2dbdb1379628d909a29df401b999272470985e49da2e6291f842f
+      - run: python3 scripts/test_upgrade.py --old-image ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.3@sha256:1448084e11d2dbdb1379628d909a29df401b999272470985e49da2e6291f842f --new-image narbe/ci:check

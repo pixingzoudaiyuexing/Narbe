@@ -357,6 +357,9 @@ func (a *AWS) Instances(ctx context.Context, region string) ([]Instance, error) 
 	return nil, &Error{Code: "AWS 实例分页超限"}
 }
 func (a *AWS) Create(ctx context.Context, s Spec, token string) (Operation, error) {
+	if e := ValidateStartupText("aws", s); e != nil {
+		return Operation{}, e
+	}
 	v := url.Values{"ImageId": {s.Image}, "InstanceType": {s.Plan}, "MinCount": {"1"}, "MaxCount": {"1"}, "ClientToken": {token}, "NetworkInterface.1.DeviceIndex": {"0"}, "NetworkInterface.1.SubnetId": {s.Network}, "NetworkInterface.1.SecurityGroupId.1": {s.Group}, "NetworkInterface.1.AssociatePublicIpAddress": {"true"}, "TagSpecification.1.ResourceType": {"instance"}, "TagSpecification.1.Tag.1.Key": {"Name"}, "TagSpecification.1.Tag.1.Value": {s.Name}, "TagSpecification.1.Tag.2.Key": {"narbe-job"}, "TagSpecification.1.Tag.2.Value": {token}, "MetadataOptions.HttpTokens": {"required"}}
 	if s.IPv6 {
 		v.Set("NetworkInterface.1.Ipv6AddressCount", "1")
@@ -365,7 +368,7 @@ func (a *AWS) Create(ctx context.Context, s Spec, token string) (Operation, erro
 		v.Set("KeyName", s.Key)
 	}
 	if s.UserData != "" {
-		v.Set("UserData", base64.StdEncoding.EncodeToString([]byte(s.UserData)))
+		v.Set("UserData", base64.StdEncoding.EncodeToString([]byte(StartupPayload(s))))
 	}
 	var res struct {
 		Items []awsInstance `xml:"instancesSet>item"`
