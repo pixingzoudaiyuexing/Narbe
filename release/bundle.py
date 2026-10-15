@@ -13,10 +13,14 @@ parser.add_argument('output',type=Path)
 args=parser.parse_args()
 record=json.loads(args.record.read_text())
 version=Path('release/VERSION').read_text().strip()
-assert record['version']==version and version=='v0.1.0-beta.3' and re.fullmatch(r'sha256:[0-9a-f]{64}',record['digest'])
+assert record['version']==version and version=='v0.1.0-beta.4' and re.fullmatch(r'sha256:[0-9a-f]{64}',record['digest'])
 assert record['image']=='ghcr.io/pixingzoudaiyuexing/narbe'
-assert record['applicationReviewedSha']=='4f1c9cc2a7c8e099ab3c375548c48e691d87c72d'
+assert record['applicationReviewedSha']=='2f23ceb8c1e98fcb8535e9dd5d1230e6c7e01c49'
 assert re.fullmatch(r'[0-9a-f]{40}',record['releaseReviewedSha']) and re.fullmatch(r'[0-9a-f]{40}',record['sourceSha'])
+assert re.fullmatch(r'https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/[0-9]+',record['workflowUrl'])
+manifests=record['manifest']['manifests']
+assert len(manifests)==2 and {(m['platform']['os'],m['platform']['architecture']) for m in manifests}=={('linux','amd64'),('linux','arm64')}
+assert all(re.fullmatch(r'sha256:[0-9a-f]{64}',m['digest']) for m in manifests)
 args.output.mkdir(parents=True,exist_ok=True)
 files={name:Path('release',name).read_bytes() for name in ('compose.yaml','install.sh','.env.example','README.md','VERSION')}
 files['image.env']=f"NARBE_IMAGE={record['image']}:{version}@{record['digest']}\n".encode()
