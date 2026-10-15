@@ -131,6 +131,40 @@ func (l *Linode) firewallList(ctx context.Context) (LinodeFirewallView, error) {
 	out.Snapshot = fingerprint(out.Items)
 	return out, nil
 }
+
+// Presentation copies only. Keep the raw representation used for fingerprints,
+// confirmation and cloud-write verification unchanged (nil and [] differ there).
+func firewallDisplay(f LinodeFirewall) (LinodeFirewall, error) {
+	bad := func() (LinodeFirewall, error) {
+		return LinodeFirewall{}, &Error{Code: "防火墙规则或绑定响应不完整，无法确认影响范围"}
+	}
+	if f.ID < 1 || f.Label == "" || (f.Status != "enabled" && f.Status != "disabled") || f.Snapshot == "" {
+		return bad()
+	}
+	if f.Devices == nil {
+		f.Devices = []FirewallDevice{}
+	}
+	if f.Rules.Inbound == nil {
+		f.Rules.Inbound = []FirewallRule{}
+	}
+	if f.Rules.Outbound == nil {
+		f.Rules.Outbound = []FirewallRule{}
+	}
+	if ValidateFirewallRules(f.Rules) != nil {
+		return bad()
+	}
+	seen := map[int]bool{}
+	for _, d := range f.Devices {
+		if d.ID < 1 || seen[d.ID] || d.Entity.ID < 1 || !contains([]string{"linode", "linode_interface", "nodebalancer"}, d.Entity.Type) {
+			return bad()
+		}
+		seen[d.ID] = true
+		if d.Entity.Type == "linode_interface" && (d.Entity.ParentEntity == nil || d.Entity.ParentEntity.ID < 1 || d.Entity.ParentEntity.Type != "linode") {
+			return bad()
+		}
+	}
+	return f, nil
+}
 func (l *Linode) LinodeRead(ctx context.Context, view, id, period string, page int) (any, error) {
 	if page < 1 || page > 100 {
 		return nil, errors.New("分页范围无效")
@@ -139,9 +173,26 @@ func (l *Linode) LinodeRead(ctx context.Context, view, id, period string, page i
 	case "instance":
 		return l.state(ctx, id)
 	case "firewall":
-		return l.firewall(ctx, id)
+		f, e := l.firewall(ctx, id)
+		if e != nil {
+			return nil, e
+		}
+		return firewallDisplay(f)
 	case "firewalls":
-		return l.firewallList(ctx)
+		v, e := l.firewallList(ctx)
+		if e != nil {
+			return nil, e
+		}
+		if v.Items == nil {
+			v.Items = []LinodeFirewall{}
+		}
+		for i := range v.Items {
+			v.Items[i], e = firewallDisplay(v.Items[i])
+			if e != nil {
+				return nil, e
+			}
+		}
+		return v, nil
 	case "instance-firewalls":
 		if e := linodeID(id); e != nil {
 			return nil, e
@@ -174,7 +225,16 @@ func (l *Linode) LinodeRead(ctx context.Context, view, id, period string, page i
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"items": v, "snapshot": fingerprint(v)}, nil
+		snapshot := fingerprint(v)
+		if v == nil {
+			v = []LinodeFirewall{}
+		}
+		for _, f := range v {
+			if f.ID < 1 || f.Label == "" || !contains([]string{"enabled", "disabled"}, f.Status) {
+				return nil, &Error{Code: "防火墙绑定身份响应不完整"}
+			}
+		}
+		return map[string]any{"items": v, "snapshot": snapshot}, nil
 	case "permissions":
 		return l.permissions(ctx), nil
 	case "transfer":

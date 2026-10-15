@@ -1004,3 +1004,6 @@ td button.name {
 #create-summary dd {
   overflow-wrap: anywhere;
 }
+.firewall-picker [hidden] {
+  display: none !important;
+}

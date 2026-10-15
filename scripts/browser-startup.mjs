@@ -170,7 +170,11 @@ await page.route("**/*", async (route) => {
       groups: [{ id: "group", name: "安全组" }],
     };
   else if (path === "linode")
-    body = { accountId: aid, accountRevision: 1, data: { items: [] } };
+    body = {
+      accountId: aid,
+      accountRevision: 1,
+      data: { items: [], snapshot: "firewall-list-fixture" },
+    };
   else if (path === "stackscripts") {
     if (denied)
       return route.fulfill({

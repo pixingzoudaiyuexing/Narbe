@@ -92,6 +92,8 @@ function readRules(form) {
   return rules;
 }
 export function readFirewallSelection(form) {
+  if (form.querySelector(".firewall-picker")?.dataset.invalid === "true")
+    firewallDataError();
   const mode = form.elements.firewallMode.value;
   return {
     mode,
@@ -108,6 +110,109 @@ export function readFirewallSelection(form) {
       : {}),
   };
 }
+// Normalize only explicit empty collections. Missing/incorrect security fields
+// must not become an apparently permissive firewall or an unbound resource.
+function firewallDataError() {
+  throw new Error(
+    "防火墙数据不完整或格式无效，无法确认规则与绑定范围；请重试或到云控制台核实",
+  );
+}
+const record = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+const positiveID = (v) => Number.isSafeInteger(v) && v > 0;
+function collection(v) {
+  if (v === null) return [];
+  if (!Array.isArray(v)) firewallDataError();
+  return v;
+}
+function firewallRules(v) {
+  if (
+    !record(v) ||
+    !["ACCEPT", "DROP"].includes(v.inbound_policy) ||
+    !["ACCEPT", "DROP"].includes(v.outbound_policy)
+  )
+    firewallDataError();
+  const out = { ...v };
+  for (const dir of ["inbound", "outbound"]) {
+    out[dir] = collection(v[dir]).map((r) => {
+      if (
+        !record(r) ||
+        !["ACCEPT", "DROP"].includes(r.action) ||
+        !["TCP", "UDP", "ICMP", "IPENCAP"].includes(r.protocol) ||
+        !record(r.addresses) ||
+        (r.ports !== undefined && typeof r.ports !== "string")
+      )
+        firewallDataError();
+      const addresses = {};
+      for (const family of ["ipv4", "ipv6"]) {
+        addresses[family] =
+          r.addresses[family] === undefined
+            ? []
+            : collection(r.addresses[family]);
+        if (
+          addresses[family].some((ip) => typeof ip !== "string" || !ip.trim())
+        )
+          firewallDataError();
+      }
+      if (!addresses.ipv4.length && !addresses.ipv6.length) firewallDataError();
+      return { ...r, addresses };
+    });
+  }
+  return out;
+}
+function firewallRecord(f) {
+  if (
+    !record(f) ||
+    !positiveID(f.id) ||
+    typeof f.label !== "string" ||
+    !f.label.trim() ||
+    !["enabled", "disabled"].includes(f.status) ||
+    typeof f.snapshot !== "string" ||
+    !f.snapshot
+  )
+    firewallDataError();
+  const devices = collection(f.devices);
+  const seen = new Set();
+  for (const d of devices) {
+    if (
+      !record(d) ||
+      !positiveID(d.id) ||
+      seen.has(d.id) ||
+      !record(d.entity) ||
+      !positiveID(d.entity.id) ||
+      !["linode", "linode_interface", "nodebalancer"].includes(d.entity.type) ||
+      (d.entity.label !== undefined && typeof d.entity.label !== "string")
+    )
+      firewallDataError();
+    seen.add(d.id);
+    if (
+      d.entity.type === "linode_interface" &&
+      (!record(d.entity.parent_entity) ||
+        !positiveID(d.entity.parent_entity.id) ||
+        d.entity.parent_entity.type !== "linode")
+    )
+      firewallDataError();
+  }
+  return { ...f, rules: firewallRules(f.rules), devices };
+}
+function firewallView(data, full) {
+  if (!record(data) || typeof data.snapshot !== "string" || !data.snapshot)
+    firewallDataError();
+  const seen = new Set();
+  const items = collection(data.items).map((f) => {
+    if (
+      !record(f) ||
+      !positiveID(f.id) ||
+      seen.has(f.id) ||
+      typeof f.label !== "string" ||
+      !f.label.trim() ||
+      !["enabled", "disabled"].includes(f.status)
+    )
+      firewallDataError();
+    seen.add(f.id);
+    return full ? firewallRecord(f) : f;
+  });
+  return { ...data, items };
+}
 async function read(acc, view, parameters = {}) {
   const reply = await ctx.api(
     "linode?" + new URLSearchParams({ accountId: acc.id, view, ...parameters }),
@@ -118,11 +223,15 @@ async function read(acc, view, parameters = {}) {
     !ctx.accounts().some((a) => a.id === acc.id && a.revision === acc.revision)
   )
     throw new Error("账号已变化，请重新打开详情");
+  if (view === "firewalls") return firewallView(reply.data, true);
+  if (view === "instance-firewalls") return firewallView(reply.data, false);
+  if (view === "firewall") return firewallRecord(reply.data);
   return reply.data;
 }
 export async function loadFirewallOptions(form, aid) {
   const picker = form.querySelector(".firewall-picker");
   if (!picker) return;
+  picker.dataset.invalid = "true";
   const acc = ctx.accounts().find((a) => a.id === aid);
   const show = () => {
     const mode = form.elements.firewallMode.value;
@@ -135,6 +244,7 @@ export async function loadFirewallOptions(form, aid) {
   try {
     const v = await read(acc, "firewalls");
     if (!form.isConnected) return;
+    picker.dataset.invalid = "false";
     form.elements.firewallID.innerHTML = ctx.options(
       v.items
         .filter((f) => f.status === "enabled")
@@ -150,7 +260,9 @@ export async function loadFirewallOptions(form, aid) {
   } catch (e) {
     if (form.isConnected) {
       picker.querySelector("[data-firewall-error]").textContent = e.message;
-      picker.querySelector("[data-unverified]").hidden = false;
+      const permissionFailure = /权限/.test(e.message);
+      picker.dataset.invalid = String(!permissionFailure);
+      picker.querySelector("[data-unverified]").hidden = !permissionFailure;
     }
   }
 }
