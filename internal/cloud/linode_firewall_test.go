@@ -171,7 +171,7 @@ func TestLinodeFirewallNewInterfaceExactParentAndDevice(t *testing.T) {
 				case req.Method == http.MethodGet && req.URL.Path == "/v4/linode/instances/123/interfaces/7/firewalls":
 					return response(200, `{"data":[{"id":42}],"pages":1}`), nil
 				case req.Method == http.MethodGet && req.URL.Path == "/v4/networking/firewalls/42":
-					return response(200, `{"id":42,"label":"shared","status":"enabled"}`), nil
+					return response(200, `{"id":42,"label":"shared","status":"enabled","rules":{"inbound":[],"outbound":[],"inbound_policy":"DROP","outbound_policy":"ACCEPT"}}`), nil
 				case req.Method == http.MethodGet && req.URL.Path == "/v4/networking/firewalls/42/devices":
 					return response(200, `{"data":[`+linodeFirewallDeviceJSON(51, 7, parentID)+`,`+linodeFirewallDeviceJSON(52, 8, 999)+`],"pages":1}`), nil
 				case req.Method == http.MethodDelete && req.URL.Path == "/v4/networking/firewalls/42/devices/51":
@@ -296,7 +296,7 @@ func TestLinodeFirewallBindingPartialFailureIsUnknown(t *testing.T) {
 		case req.Method == http.MethodGet && req.URL.Path == "/v4/linode/instances/123/interfaces/7/firewalls":
 			return response(200, `{"data":[{"id":42}],"pages":1}`), nil
 		case req.Method == http.MethodGet && req.URL.Path == "/v4/networking/firewalls/42":
-			return response(200, `{"id":42,"label":"shared","status":"enabled"}`), nil
+			return response(200, `{"id":42,"label":"shared","status":"enabled","rules":{"inbound":[],"outbound":[],"inbound_policy":"DROP","outbound_policy":"ACCEPT"}}`), nil
 		case req.Method == http.MethodGet && req.URL.Path == "/v4/networking/firewalls/42/devices":
 			return response(200, `{"data":[`+linodeFirewallDeviceJSON(51, 7, 123)+`],"pages":1}`), nil
 		case req.Method == http.MethodGet && req.URL.Path == "/v4/networking/firewalls/43":

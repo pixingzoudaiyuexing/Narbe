@@ -95,7 +95,20 @@ func (l *Linode) firewall(ctx context.Context, id string) (LinodeFirewall, error
 	if e := linodeID(id); e != nil {
 		return f, e
 	}
-	if e := l.call(ctx, "GET", "/networking/firewalls/"+id, nil, &f); e != nil {
+	// Preserve the distinction between explicit null and an omitted direction.
+	// A missing rules field must not be projected to an apparently empty list.
+	wire := struct {
+		*LinodeFirewall
+		Rules json.RawMessage `json:"rules"`
+	}{LinodeFirewall: &f}
+	if e := l.call(ctx, "GET", "/networking/firewalls/"+id, nil, &wire); e != nil {
+		return f, e
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(wire.Rules, &fields) != nil || len(fields["inbound"]) == 0 || len(fields["outbound"]) == 0 {
+		return f, &Error{Code: "防火墙双向规则字段缺失，无法确认规则范围"}
+	}
+	if e := decode(wire.Rules, &f.Rules); e != nil {
 		return f, e
 	}
 	if fmt.Sprint(f.ID) != id || f.Label == "" {

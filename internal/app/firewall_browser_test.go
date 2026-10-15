@@ -42,6 +42,10 @@ func (f *firewallBrowserFake) LinodeRead(ctx context.Context, view, id, period s
 		fw["devices"] = []any{map[string]any{"id": 51, "entity": map[string]any{"id": 123, "type": "linode", "label": "legacy-server"}}, map[string]any{"id": 52, "entity": map[string]any{"id": 8, "type": "linode_interface", "label": "public-interface", "parent_entity": map[string]any{"id": 456, "type": "linode"}}}}
 	case "bad-policy":
 		rules["inbound_policy"] = "UNKNOWN"
+	case "missing-inbound":
+		delete(rules, "inbound")
+	case "missing-outbound":
+		delete(rules, "outbound")
 	case "missing-policy":
 		delete(rules, "outbound_policy")
 	case "bad-devices":

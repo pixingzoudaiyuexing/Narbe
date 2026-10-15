@@ -10,7 +10,7 @@
 
 ## 根因与实际行为
 
-`pages`接收到明确的空data数组时，内部聚合nil Slice再序列化/解码使设备或列表成为nil；Go JSON输出null。规则方向本身也允许官方响应为null。前端直接length/map/for-of，旧浏览器替身只给非空/[]，未覆盖真实Go序列化边界。
+`pages`接收到明确的空data数组时，内部聚合nil Slice再序列化/解码使设备或列表成为nil；Go JSON输出null。规则方向本身也允许官方响应为null。后端另以RawMessage保留字段存在性：合法null接受，遗漏inbound/outbound的响应拒绝，避免Go将缺失与null合并后伪装为空规则。该遗漏用例已先红后绿。前端直接length/map/for-of，旧浏览器替身只给非空/[]，未覆盖真实Go序列化边界。
 
 - 在Linode只读DTO出口创建显示副本，明确空devices/items/inbound/outbound输出[]。原始l.firewall、分页完整性、fingerprint、写前复核不变；原始快照先算后透传，不根据UI归一化重算。上游分页data:null或缺失仍不等于确认零资源，不放宽成全部放行。
 - 前端只将显式null集合归一化；Array.isArray严格拒绝对象/字符串/缺失集合。ID、label、status、snapshot、策略、规则与设备实体/接口父归属错误时给出中文错误，不当成允许策略或零绑定。
@@ -25,7 +25,7 @@ HTTP浏览器最小用例先失败并显示与Owner相同的null.length错误，
 
 完整race、vet、五组桌面/手机浏览器通过：原beta.3九能力、beta.4四云脚本与新防火墙回归均保留。Go合同验证显示副本不改变已有快照，且固定修复前指纹`81cd5fbcf81e85fe10da0caded6d0a90d6a1bdce01c19b778255054976d1b8f3`不变，现有共享影响范围变化拒写合同继续通过。格式及纯JS向量检查通过。
 
-本轮agy Embedded Reviewer 1次（gemini-3.8-flash-high/high，180s），提供精简Diff/代码/真实测试Evidence Pack，不让其搜索仓库或.git；返回PASS。Engineer核对其未知设备类型、权限文案依赖风险均为保守失败关闭。内部PASS不替代A/B两组正式复审。
+本轮agy Embedded Reviewer 2次（初审及字段存在性补充复核）（gemini-3.8-flash-high/high，180s），提供精简Diff/代码/真实测试Evidence Pack，不让其搜索仓库或.git；均返回PASS。补充复核确认两个旧绑定测试替身补齐合法规则报文，原断言未削弱。Engineer核对其未知设备类型、权限文案依赖风险均为保守失败关闭。内部PASS不替代A/B两组正式复审。
 
 Docker使用相同固定基础镜像，本机构建及beta.3持久化升级结果、最终Push/PR CI链接由最终交付报告实读提供；不能把本说明写入时尚未完成的步骤当PASS。升级只使用disposable Volume，保留beta.3回滚镜像，不全局prune。
 

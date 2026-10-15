@@ -114,6 +114,8 @@ try {
   assert.equal(confirms.at(-1).action, "firewall-create");
   for (const bad of [
     "bad-policy",
+    "missing-inbound",
+    "missing-outbound",
     "missing-policy",
     "bad-devices",
     "bad-id",
@@ -210,7 +212,7 @@ try {
       result: "PASS",
       httpFixture: "real Go Handler/API/SQLite",
       nullCollections: true,
-      malformedCases: 9,
+      malformedCases: 11,
       confirmations: confirms.length,
       realCloudWrites: 0,
       defaultAllUnchanged: true,

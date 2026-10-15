@@ -84,6 +84,8 @@ func TestLinodeFirewallReadEmptyListsAndBindingSnapshots(t *testing.T) {
 }
 func TestLinodeFirewallMalformedReadCannotMasqueradeAsEmpty(t *testing.T) {
 	for _, payload := range []string{
+		`{"id":42,"label":"bad","status":"enabled","rules":{"outbound":null,"inbound_policy":"DROP","outbound_policy":"ACCEPT"}}`,
+		`{"id":42,"label":"bad","status":"enabled","rules":{"inbound":null,"inbound_policy":"DROP","outbound_policy":"ACCEPT"}}`,
 		`{"id":42,"label":"bad","status":"mystery","rules":{"inbound":null,"outbound":null,"inbound_policy":"DROP","outbound_policy":"ACCEPT"}}`,
 		`{"id":42,"label":"bad","status":"enabled","rules":{"inbound":null,"outbound":null,"inbound_policy":"UNKNOWN","outbound_policy":"ACCEPT"}}`,
 		`{"id":42,"label":"bad","status":"enabled","rules":{"inbound":null,"outbound":null,"inbound_policy":"ACCEPT"}}`,
