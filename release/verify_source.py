@@ -6,16 +6,30 @@ import re
 import subprocess
 from pathlib import Path
 
-APPROVED_APPLICATION = '4f1c9cc2a7c8e099ab3c375548c48e691d87c72d'
-VERSION = 'v0.1.0-beta.3'
+APPROVED_APPLICATION = 'e22627ee181dac1d754a11d9a45ca5376f0d55a9'
+VERSION = 'v0.1.0-beta.4'
 # Exact paths, not directories/globs. These changes need separate formal review.
 RELEASE_FILES = frozenset({
     '.github/workflows/release.yml', '.github/workflows/ci.yml',
     'release/VERSION', 'release/publish.sh', 'release/bundle.py',
     'release/test_bundle.py', 'release/verify_source.py', 'release/test_verify_source.py',
-    'release/README.md', 'release/NOTES.md', 'docs/BETA3_RELEASE_REVIEW.md',
+    'release/README.md', 'release/NOTES.md', 'docs/BETA4_RELEASE_REVIEW.md',
 })
 POST_REVIEW_TEXT = frozenset({'release/README.md', 'release/NOTES.md'})
+
+
+def release_files(sha):
+    # Review exceptions are exact regular files, never symlinks, submodules,
+    # directories, or files whose execute bit changes their interpretation.
+    for path in RELEASE_FILES:
+        mode = '100755' if path == 'release/publish.sh' else '100644'
+        if not git('ls-tree', sha, '--', path).startswith(mode + ' blob '):
+            raise ValueError('Release file must retain its regular file type/mode: ' + path)
+    for path in POST_REVIEW_TEXT:
+        raw = subprocess.check_output(['git', 'show', sha + ':' + path])
+        text = raw.decode('utf-8')
+        if any(ord(c) < 32 and c not in '\t\r\n' for c in text):
+            raise ValueError('Release notes must remain ordinary UTF-8 text: ' + path)
 
 
 def git(*args):
@@ -45,7 +59,7 @@ def changed(base, head):
 def verify(app, release, head):
     app, release, head = commit(app), commit(release), commit(head)
     if app != APPROVED_APPLICATION:
-        raise ValueError('Application SHA is not the formally approved beta.3 baseline')
+        raise ValueError('Application SHA is not the formally approved beta.4 baseline')
     ancestor(app, release)
     ancestor(release, head)
     unapproved = changed(app, release) - RELEASE_FILES
@@ -55,19 +69,20 @@ def verify(app, release, head):
     if unapproved:
         raise ValueError('Unreviewed executable or non-allowlisted changes: ' + ', '.join(sorted(unapproved)))
     for sha in {release, head}:
+        release_files(sha)
         if git('show', sha + ':release/VERSION') != VERSION:
-            raise ValueError('Release version does not match beta.3')
-        # Text-only exceptions cannot turn into executable files or symlinks.
-        for path in POST_REVIEW_TEXT:
-            entry = git('ls-tree', sha, '--', path)
-            if not entry.startswith('100644 blob '):
-                raise ValueError('Release text must remain a regular non-executable file: ' + path)
+            raise ValueError('Release version does not match beta.4')
     if git('rev-parse', 'HEAD') != head:
         raise ValueError('Checked-out HEAD differs from the release commit')
     if subprocess.run(['git', 'diff', '--quiet', 'HEAD', '--']).returncode:
         raise ValueError('Tracked working tree differs from the reviewed release')
     # CI downloads artifacts only under ignored .local/. Reject source injection.
-    raw = subprocess.check_output(['git', 'ls-files', '--others', '--exclude-standard', '-z'])
+    # Include ignored inputs too: an ignored asset can still enter go:embed.
+    # Restrict enumeration to protected paths so node_modules/.local stay out.
+    raw = subprocess.check_output(['git', 'ls-files', '--others', '-z', '--',
+                                   'cmd', 'internal', 'scripts', 'release', '.github',
+                                   'Dockerfile', '.dockerignore', 'compose.yaml',
+                                   'go.mod', 'go.sum', 'package.json', 'package-lock.json'])
     untracked = raw.decode().rstrip('\0').split('\0') if raw else []
     for path in untracked:
         if path.startswith(('cmd/', 'internal/', 'scripts/', 'release/', '.github/')) or path in {

@@ -1,31 +1,26 @@
-# Narbe v0.1.0-beta.3 — Linode高级管理与四云地区分组
+# Narbe v0.1.0-beta.4 — 四云初始化脚本与 Linode StackScripts
 
-这是已批准的测试预发布版本。应用基线 `4f1c9cc2a7c8e099ab3c375548c48e691d87c72d` 已正式审核 PASS WITH CONDITIONS。发行配置 `e1955797433a1516ce1a850d7d2e707572af249e` 已由原Independent Reviewer针对性复审PASS。release-evidence.json记录实际发布提交、应用审核SHA、发行审核SHA和不可变digest。beta.1/beta.2保留，不推送latest。
+这是待发行的测试预发布候选，**尚未发布**。应用审核锚点 `e22627ee181dac1d754a11d9a45ca5376f0d55a9` 正式审核 PASS WITH CONDITIONS；发行配置专项复审 REQUIRED / PENDING，不能先填发行审核SHA。审核后发布仍需上游明确授权；保留beta.1/2/3，不推latest。
 
-本版新增：
+新增能力：
 
-- Linode重装系统，动态选择镜像及密码/SSH登录方式。
-- Linode升级或降低配置，显示CPU、内存、磁盘与价格差异。
-- Linode指定系统磁盘root密码重置。
-- Linode克隆为新的服务器。
-- Linode跨数据中心迁移。
-- Linode当月/历史流量统计，区分实例贡献额和账户共享池。
-- Linode运行监控：CPU、磁盘I/O、IPv4/IPv6真实时序图与历史查询。
-- Linode账户余额、未出账费用估算及历史账单查询，无支付功能。
-- Linode云防火墙查看、创建、规则/状态修改、删除及实例/新接口绑定。
-- AWS、Azure、Linode、DigitalOcean地区按大洲分组，保留中文名称和原始ID搜索。
+- AWS Linux Shell、Cloud-init与Windows PowerShell。
+- Azure Linux Shell / Cloud-init（osProfile.customData）。
+- Linode Metadata初始化，动态核实镜像和地区能力。
+- Linode现有StackScripts选择、名称搜索、分页、兼容性与动态UDF参数。
+- DigitalOcean Shell / Cloud-init。
+- 四云统一初始化脚本UI，UTF-8字节预算、摘要指纹和弹窗内草稿保留；普通任务与日志不披露脚本全文或参数值。
 
-Go + SQLite、单个非root轻量容器，Linux AMD64/ARM64原生构建和镜像回拉安装。原有认证、CSRF、确认、幂等、queued有效期与running/unknown防重复执行机制保留。
+重要限制：
 
-需要了解的影响：
+- 脚本主要在首次部署时执行，不等于每次重启执行；实例创建/开机成功不等于脚本执行成功。
+- AWS Windows PowerShell依赖兼容的EC2Launch / EC2Config。Azure Windows customData不提供自动执行保证，本候选未开放此模式，不通过扩展绕过。
+- Linode Metadata必须使用兼容系统镜像及地区；私人StackScripts权限由实际Linode账号决定，公共目录可读不能证明私人IAM。
+- 四云真实收费创建、来宾执行和私人StackScript IAM尚未完成真实E2E；Linode九项高级写操作与原CloudPanel完整覆盖仍有缺口。
+- 脚本可能拥有root权限，不应硬编码敏感凭据。厂商/来宾可能保留User Data，Base64不是加密。
+- 保留beta.3新建Linode默认legacy_config / firewall_id=-1：不绑定云防火墙、全部放行，不更改已有实例、账户全局默认或OS防火墙。
+- 保留既有重装删盘、克隆收费/源机关机、迁移停机换IP、复杂Volume/VPC/VLAN保守限制。Azure删除VM后关联磁盘及公网IP等仍可能计费。
 
-- 新建Linode默认明确不绑定云防火墙，全部放行；不会更改账户全局默认或已有服务器，不代表操作系统防火墙已关闭。已有/自定义防火墙可选；无法核实生效时明确待人工核实。
-- 重装系统会清除原本地系统磁盘数据及配置，请先备份。
-- 克隆会新增收费实例；当前实现要求源实例先关机，新机保持关机，需手动开机。
-- 数据中心迁移可能停机并更换公网IP，旧备份不迁移；Narbe不自动更新外部DNS。
-- 复杂Volume、VPC/VLAN、托管关系等存在保守限制，不自动删盘或脱离网络。
-- 九项高级功能尚未经过真实Linode云端完整E2E；合同/Mock、浏览器及Docker成功不代表真实云写验收。
-- 四云真实创建/删除E2E与原CloudPanel完整覆盖仍有证据缺口。
-- Azure删除VM后关联磁盘、公网IP等可能继续计费。
+Narbe只能说明“初始化脚本已提交，实际执行结果请登录服务器检查。” Linux日志 `/var/log/cloud-init.log`、`/var/log/cloud-init-output.log`，Azure另查 `/var/log/waagent.log`，AWS EC2Launch v2查 `C:\ProgramData\Amazon\EC2Launch\log\agent.log`，具体随代理版本变化；StackScript按脚本自身配置查看日志。
 
-当前版本供自行部署和测试，不是生产稳定版。安装与beta.2无损升级说明见安装包README；正式附件来自成功发布工作流；实际发行与验证证据见Release及release-evidence.json。
+Go + SQLite、单个非root容器，无额外数据库。发行配置保留AMD64/ARM64原生构建、GHCR回拉安装与beta.3固定digest同Volume升级；实际执行结果须以审核后正式工作流为准，当前不能宣称已完成正式发布。不是生产稳定版，不自动升级Owner环境。
