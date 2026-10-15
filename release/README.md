@@ -1,6 +1,6 @@
-# Narbe v0.1.0-beta.3 安装与使用
+# Narbe v0.1.0-beta.4 安装与使用
 
-这是 beta.3 测试预发布安装说明。应用基线 `4f1c9cc2a7c8e099ab3c375548c48e691d87c72d` 已正式审核 PASS WITH CONDITIONS，发行配置基线 `e1955797433a1516ce1a850d7d2e707572af249e` 已针对性正式复审PASS，双SHA门禁分别核验应用与发行代码。beta.1/beta.2保留，本版供Owner自行测试，不宣称生产稳定。支持 Linux AMD64 / ARM64、AWS / Azure / Linode / DigitalOcean，单个 Go + SQLite 容器。
+这是 beta.4 待发行候选安装说明（尚未发布，以下下载命令须待正式发行后使用）。应用基线 `ebc933f2842be343ffcb6eefd240cdab54ef1b4d` 是本次防火墙修复后的新应用候选，应用专项复审 REQUIRED / PENDING；原初始化业务e226已PASS WITH CONDITIONS，本轮发行配置专项复审 REQUIRED / PENDING，发行审核SHA须待原Independent Reviewer正式批准后确定，双SHA门禁分别核验应用与发行代码。beta.1/beta.2/beta.3保留，本版供Owner自行测试，不宣称生产稳定。支持 Linux AMD64 / ARM64、AWS / Azure / Linode / DigitalOcean，单个 Go + SQLite 容器。
 
 需要已安装 Docker Engine 和 Docker Compose v2、Bash、curl、tar、sha256sum；服务器无需 Go、Node.js、MySQL 或 Redis。不会自动安装或改动系统 Docker。
 
@@ -10,10 +10,10 @@
 
 ```bash
 mkdir -p narbe-beta && cd narbe-beta
-curl -fL --retry 3 -o narbe-v0.1.0-beta.3-install.tar.gz https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.3/narbe-v0.1.0-beta.3-install.tar.gz
-curl -fL --retry 3 -o SHA256SUMS https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.3/SHA256SUMS
+curl -fL --retry 3 -o narbe-v0.1.0-beta.4-install.tar.gz https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.4/narbe-v0.1.0-beta.4-install.tar.gz
+curl -fL --retry 3 -o SHA256SUMS https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.4/SHA256SUMS
 sha256sum -c SHA256SUMS
-tar -xzf narbe-v0.1.0-beta.3-install.tar.gz
+tar -xzf narbe-v0.1.0-beta.4-install.tar.gz
 ./install.sh
 ```
 
@@ -59,7 +59,7 @@ docker compose --env-file .env --env-file image.env -f compose.yaml restart
 
 ## 测试版边界
 
-原六项安全修复、四云聚合和beta.3九项Linode高级管理已正式审核。新增发行配置已完成单独正式复审；应用审核SHA与发行脚本审核SHA分别记录。包内release.json及release-evidence.json分别记录 `applicationReviewedSha`、`releaseReviewedSha`、`sourceSha` 与镜像digest；发行审核后只允许README/Notes文字后补，任何其他差异失败关闭。
+原六项安全修复、四云聚合和beta.3九项Linode高级管理已正式审核。本轮发行配置尚未完成专项正式复审；应用审核SHA与发行脚本审核SHA分别记录。包内release.json及release-evidence.json分别记录 `applicationReviewedSha`、`releaseReviewedSha`、`sourceSha` 与镜像digest；发行审核后只允许README/Notes文字后补，任何其他差异失败关闭。
 
 支持动态地区、规格和系统镜像查询，已有实例查询、创建及生命周期管理。云厂商差异、计费、配额及权限必须由 Owner 自行验证。
 
@@ -73,9 +73,9 @@ docker compose --env-file .env --env-file image.env -f compose.yaml restart
 
 版本、发布提交、应用审核SHA、发行审核SHA、index与两个平台manifest digest记录在 `release.json` 和 Release 附件 `release-evidence.json`。
 
-## beta.2 无损升级到 beta.3
+## beta.3 无损升级到 beta.4（正式发布后）
 
-先在原安装目录停止服务，再完整备份 `narbe_narbe_data` Volume（SQLite及master.key必须一起备份，备份文件妥善保密）。不要运行 `down -v`。在新的beta.3目录下载、校验安装包；以下示例假设beta.2旧目录为同级 `narbe-beta`（如你的目录为narbe-beta2，请替换三个旧路径），复制既有配置与密码文件：
+先在原安装目录停止服务，再完整备份 `narbe_narbe_data` Volume（SQLite及master.key必须一起备份，备份文件妥善保密）。不要运行 `down -v`。在新的beta.4目录下载、校验安装包；以下示例假设beta.3旧目录为同级 `narbe-beta`（如你的目录为narbe-beta3，请替换三个旧路径），复制既有配置与密码文件：
 
 ```bash
 (
@@ -90,11 +90,11 @@ cp .env "$backup_dir/deploy.env"
 mkdir -m 700 "$backup_dir/secrets"
 cp secrets/admin-password "$backup_dir/secrets/admin-password"
 cd ..
-mkdir -m 700 narbe-beta3 && cd narbe-beta3
-curl -fL --retry 3 -o narbe-v0.1.0-beta.3-install.tar.gz https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.3/narbe-v0.1.0-beta.3-install.tar.gz
-curl -fL --retry 3 -o SHA256SUMS https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.3/SHA256SUMS
+mkdir -m 700 narbe-beta4 && cd narbe-beta4
+curl -fL --retry 3 -o narbe-v0.1.0-beta.4-install.tar.gz https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.4/narbe-v0.1.0-beta.4-install.tar.gz
+curl -fL --retry 3 -o SHA256SUMS https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.4/SHA256SUMS
 sha256sum -c SHA256SUMS
-tar -xzf narbe-v0.1.0-beta.3-install.tar.gz
+tar -xzf narbe-v0.1.0-beta.4-install.tar.gz
 cp ../narbe-beta/.env .env
 mkdir -m 700 secrets
 cp ../narbe-beta/secrets/admin-password secrets/admin-password
@@ -104,3 +104,11 @@ docker compose --env-file .env --env-file image.env -f compose.yaml ps
 ```
 
 使用固定Compose项目名 `narbe` 连接同一Volume，保留原管理员密码和凭据。不覆盖 `.env` 中的Origin或绑定地址，不修改HTTP/HTTPS配置。自定义过项目名/Volume或安装目录的部署，应保留实际同一项目及Volume身份，不能另建空Volume冒充升级。确认没有queued/running任务后再重启，避免取消仍在等待的操作；已派发结果未知的任务继续禁止自动重放。保留旧镜像和备份用于必要回滚。
+
+## 初始化脚本与日志
+
+四云提供统一的可选初始化入口，默认不使用。AWS支持Linux Shell/cloud-init及Windows PowerShell；Azure只开放Linux Shell/cloud-init，Windows customData不保证自动执行，本候选不开放；DigitalOcean支持Shell/cloud-init；Linode支持兼容镜像/地区的Metadata和现有StackScripts，二者互斥。StackScripts可选择、搜索和填写动态UDF；私人权限须由当前Linode账号确认。
+
+主要在首次部署执行，不代表每次重启自动执行。AWS Windows需要兼容EC2Launch/EC2Config；未知镜像代理须自行核实。创建或开机成功不是执行成功；Narbe显示“初始化脚本已提交，实际执行结果请登录服务器检查。” Linux可检查 `/var/log/cloud-init.log`、`/var/log/cloud-init-output.log`，Azure可补查 `/var/log/waagent.log`；AWS EC2Launch v2可检查 `C:\ProgramData\Amazon\EC2Launch\log\agent.log`，其他版本路径以代理文档为准。StackScript日志依脚本自身配置。
+
+脚本通常拥有root/系统初始化权限。不要硬编码Token、私钥或云密码；云厂商与来宾可能保留User Data，Base64不是加密。四云真实收费创建、来宾执行及私人StackScript IAM尚未完成真实E2E，合同/Mock和Docker通过不能替代。默认新建Linode不绑定云防火墙、全部放行的beta.3行为保持，已有实例/账户默认及OS防火墙不会自动变更。

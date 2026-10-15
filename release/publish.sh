@@ -2,9 +2,9 @@
 set -euo pipefail
 version=$(cat release/VERSION)
 image=ghcr.io/pixingzoudaiyuexing/narbe
-[[ "$version" = v0.1.0-beta.3 ]]
+[[ "$version" = v0.1.0-beta.4 ]]
 [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
-[[ "$APP_REVIEWED_SHA" = 4f1c9cc2a7c8e099ab3c375548c48e691d87c72d ]]
+[[ "$APP_REVIEWED_SHA" = ebc933f2842be343ffcb6eefd240cdab54ef1b4d ]]
 [[ "$RELEASE_REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]]
 # This verifier was extracted from the independently reviewed commit, not HEAD.
 python3 "$RUNNER_TEMP/narbe-reviewed-source.py" --application "$APP_REVIEWED_SHA" --release "$RELEASE_REVIEWED_SHA" --head "$GITHUB_SHA"
