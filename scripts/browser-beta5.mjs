@@ -30,9 +30,12 @@ if (!live)
 const dir = process.env.NARBE_SCREENSHOT_DIR || "test-results";
 fs.mkdirSync(dir, { recursive: true });
 async function shot(name) {
-  await page.screenshot({ path: `${dir}/beta5-${name}-desktop.png` });
+  const surface = name.startsWith("actual-egress")
+    ? page.locator(".network-diagnostics")
+    : page;
+  await surface.screenshot({ path: `${dir}/beta5-${name}-desktop.png` });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({ path: `${dir}/beta5-${name}-mobile.png` });
+  await surface.screenshot({ path: `${dir}/beta5-${name}-mobile.png` });
   await page.setViewportSize({ width: 1440, height: 1080 });
 }
 const settings = async () => {

@@ -75,3 +75,14 @@ SOCKS5 与 SOCKS5H 按 Go 实现均由代理解析目标域名。HTTP 代理及�
 本候选须交原 Independent Reviewer 正式审核，不能复用 beta.4 PASS。不得自行发布 beta.5。后续发行版本和双 SHA 变更另行准备审核；本次 release/**、Dockerfile 和 release Workflow 无改动。
 
 真实四云授权账号经外部生产代理访问、各协议第三方代理兼容、实际云写超时行为、Linode 真实 Rebuild 的磁盘／防火墙／Metadata 行为、来宾脚本执行和私人 StackScript IAM 仍未真实 E2E；九项 Linode 高级操作及原 CloudPanel 完整覆盖旧缺口继续保留。内存中的 Go 字符串不能保证即时擦除，但不落明文／日志／响应；操作者仍须保护 master.key、数据库及管理端 HTTPS。
+
+### 本轮嵌入式安全检查范围
+
+| 边界 | 风险 | 已实现／实测控制 |
+|---|---|---|
+| 浏览器→配置／诊断／确认 | CSRF、旧 revision、探测放大、明文泄露 | 管理员／Origin／CSRF、CAS、准入限流、固定目标、密码不回显、普通 HTTP 兼容；HTTP 管理链本身仍应由操作者保护 |
+| 配置→DNS／代理→云端 | SSRF、DNS 重绑定、凭据转发、TLS 绕过 | 精确端点授权、全 DNS 答案与实际 Dial 校验、官方域名／443、原签名、TLS 验证、禁重定向和直连降级 |
+| 设置→任务／缓存 | TOCTOU、改出口重放、旧缓存晚回包 | 事务取消 queued、确认摘要 revision、不可变 running 客户端、缓存入场串行及引用身份检查 |
+| 输入脚本→持久化／Linode Rebuild | 数据删除、秘密外泄、重放、参数越权 | 明示磁盘删除、Metadata 另确认、原共享校验器、密文载荷、摘要不含全文、权限回查、unknown 不重放 |
+
+本轮源码／配置的定向人工检查未形成额外未修复项；不是对生产配置、第三方代理服务、实际云 IAM 或全产品穷尽审计的保证。正式审核仍待外部 Reviewer 执行。
