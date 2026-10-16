@@ -34,3 +34,18 @@ jobs:
       - run: NARBE_IMAGE=narbe/ci:check python3 scripts/test_runtime.py
       - run: docker pull ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.4@sha256:1d1f45b4a357fd609e818606e549b0ebabb98e8486fd4e4c43f09e542c548560
       - run: python3 scripts/test_upgrade.py --old-image ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.4@sha256:1d1f45b4a357fd609e818606e549b0ebabb98e8486fd4e4c43f09e542c548560 --new-image narbe/ci:check
+  arm64-runtime:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.26.9'
+          cache: false
+      - run: test "$(uname -m)" = aarch64
+      - run: docker build --build-arg VERSION=beta5-candidate --build-arg "REVISION=$GITHUB_SHA" -t narbe/ci:arm64 .
+      - run: docker image inspect narbe/ci:arm64 --format 'architecture={{.Architecture}} bytes={{.Size}} image={{.Id}} revision={{index .Config.Labels "org.opencontainers.image.revision"}}'
+      - run: NARBE_IMAGE=narbe/ci:arm64 python3 scripts/test_runtime.py
+      - run: docker pull ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.4@sha256:1d1f45b4a357fd609e818606e549b0ebabb98e8486fd4e4c43f09e542c548560
+      - run: python3 scripts/test_upgrade.py --old-image ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.4@sha256:1d1f45b4a357fd609e818606e549b0ebabb98e8486fd4e4c43f09e542c548560 --new-image narbe/ci:arm64
