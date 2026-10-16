@@ -86,3 +86,20 @@ verify-published 在两原生架构回拉最终 digest，实际 Compose 安装�
 - 先用旧门禁隔离应用锚点后实际复现三份已审文档被拒绝，原错误列出全部三路径；新版正常链及发行后两文案路径通过。
 - 11 项定向变异逐项红→绿：证据路径例外、业务差异检查、发行后差异检查、证据模式、发行文案模式、证据祖先边、ignored 输入、从 HEAD 提取验证器、缺发行变量条件、publish 构建依赖、bundle 双架构。恢复后完整 23+4 项重新通过。
 - cmd/internal/scripts、Go 依赖、Dockerfile、.dockerignore、Compose、普通 CI 与正式应用 SHA 无差异。未在开发树清理未知文件来冒充干净状态。
+
+## 最终实测与 CI 证据
+
+可执行发行配置与完整 CI 基线：`d9f30b46beeac98a566c3640db9e08542ed136da`。
+
+- [Push CI](https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/38868258712) 与 [PR CI](https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/38868261664) 均 completed / success，verify 24 步、arm64-runtime 12 步全部 success，包含完整 race／vet、23 门禁／4 bundle、全部浏览器和双架构 Docker 验证。
+- 原生 AMD64 与原生 ARM64 均实际构建、启动、健康、管理员登录、密码及加密代理设置跨重启／容器替换持久化通过。两架构从公开固定 beta.4 digest 实际拉取并完成隔离 Compose 升级，master.key、密码/settings 和非空加密云账号行逐字节保持；同一项目、Volume、端口与 Origin，强制重建后登录通过。仅读取镜像，不操作真实云资源。
+- ARM64 CI 候选 inspect.Size **13,335,091B**，image ID `sha256:6233e3fa2f4650d59c6d1790fec366ad7ee1acfa967b31bda86141966bbb209b`，source revision 为上述 d9f30b4。这是 CI 本地候选，不是正式 beta.5 发行 digest；本轮没有 GHCR 推送或发布后回拉验收。
+- [发行 Workflow](https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/38868257578) 结论 **skipped**，source-gate/build/publish/verify-published/bundle 五个逻辑 Job 均 skipped；原因是 beta.5 双变量均未设置。这只证明准备阶段不会意外发布，不能记成发行成功。
+- 在 disposable 干净 clone 中使用真实 182→800→候选链和从候选 Git blob 提取的验证器做本地模拟：正常链与后续 NOTES 文案通过；HEAD 验证器替换未执行，ignored go:embed 输入、应用／Dockerfile／发行脚本／Workflow／证据文档篡改拒绝。成功 JSON 明确识别三个固定来源 SHA、恰好三份应用证据和十份发行差异。模拟不构成正式发行 SHA 批准，没有写 GitHub 变量。
+- 本轮 agy Embedded Reviewer 1 次，完成并返回 scoped PASS；Research Scout／Root-Cause Challenger／Design Challenger／Test Designer 均 0。Embedded Review Calls：1 / 1 completed / 0 failed / 0 re-review。已对其关键结论用源码、真实链和红→绿验证；不替代原 Reviewer 的正式 Release Gate Only 复审。
+
+本轮没有进行无实际价值的本机镜像重建；应用、Dockerfile 与安装／升级脚本不变，CI 两原生平台完成当前候选验证。临时 Git 仓库和 bundle 输出均自动回收，无新本机 Builder、镜像、容器或 Volume。检查时 Docker 保持原有 **5 镜像／2.344GB，0 容器、0 Volume、0 构建缓存**；保留 beta.4/3/2/1 回滚与其他项目 Rust 镜像，宿主可用 **37GiB**。无全局 prune，没有触碰正式数据、master.key 或 Owner 服务器。
+
+实际 API 回读确认 beta.5 两变量不存在；beta.5 Tag 与 GitHub Release 不存在，匿名 GHCR 查询 beta.5 manifest 为 null（404），beta.4 Index Digest 保持原值。main 保持 `529de7a980d1e0c182ae59a8b282eb6c91148494`，PR #1 仍 Open / Draft。
+
+最后只在本文件补入实际结果，使用 `[skip ci]` 避免重复构建；最终专项待审 HEAD 的可执行配置、应用、测试、Workflow 与成功 CI 基线 d9f30b4 逐文件相同。Reviewer 应批准包含本证据的最终配置 HEAD，而不是自动沿用 d9f30b4 或任何历史发行 SHA；精确最终 HEAD 见 Engineer 报告。正式复审 PASS 与发布授权前，两个 beta.5 审核变量继续不设置。
