@@ -1,0 +1,116 @@
+{
+  "status": "CANDIDATE_PENDING_FORMAL_INDEPENDENT_REVIEW",
+  "checkedAt": "2026-10-16T06:31:27.151761+00:00",
+  "developmentBaseSha": "049fda6d77adcb5a4cda72ea1284662896b6d6ff",
+  "sourceAndCISha": "182e57759494c6fbcf6e3291d8259b524a9ea49a",
+  "ci": [
+    {
+      "url": "https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/38861083422",
+      "event": "push",
+      "headSha": "182e57759494c6fbcf6e3291d8259b524a9ea49a",
+      "conclusion": "success",
+      "jobs": [
+        {
+          "name": "verify",
+          "url": "https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/38861083422/job/116843277595",
+          "conclusion": "success",
+          "steps": 24
+        },
+        {
+          "name": "arm64-runtime",
+          "url": "https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/38861083422/job/116843277970",
+          "conclusion": "success",
+          "steps": 12
+        }
+      ]
+    },
+    {
+      "url": "https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/38861088428",
+      "event": "pull_request",
+      "headSha": "182e57759494c6fbcf6e3291d8259b524a9ea49a",
+      "conclusion": "success",
+      "jobs": [
+        {
+          "name": "arm64-runtime",
+          "url": "https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/38861088428/job/116843293347",
+          "conclusion": "success",
+          "steps": 12
+        },
+        {
+          "name": "verify",
+          "url": "https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/38861088428/job/116843293688",
+          "conclusion": "success",
+          "steps": 24
+        }
+      ]
+    }
+  ],
+  "arm64Candidate": {
+    "architecture": "arm64",
+    "nativeRunner": "ubuntu-24.04-arm",
+    "dockerImageSizeBytes": 13335091,
+    "imageId": "sha256:0bb46e90b430ad34f7f451cc454166d69a86489febbcce46c7143f01619a487a",
+    "revision": "182e57759494c6fbcf6e3291d8259b524a9ea49a",
+    "distribution": "CI local image only; not published"
+  },
+  "upgradeBaseImage": "ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.4@sha256:1d1f45b4a357fd609e818606e549b0ebabb98e8486fd4e4c43f09e542c548560",
+  "upgrades": {
+    "nativeAMD64": "PASS",
+    "nativeARM64": "PASS",
+    "scope": "disposable Compose volume only; key/password/encrypted account rows/ports/origin preserved"
+  },
+  "realReadOnlyNetwork": {
+    "threeIndependentIPChecks": "PASS",
+    "AWSUnsignedDescribeRegions": 400,
+    "AzureAnonymousSubscriptions": 401,
+    "LinodePublicRegions": 200,
+    "DigitalOceanAnonymousRegions": 401,
+    "authenticatedCloudIAM": "NOT VERIFIED",
+    "realCloudWrites": 0
+  },
+  "redGreen": [
+    "DNS rebinding",
+    "official host guard",
+    "atomic queued cancellation",
+    "rebuild Metadata acknowledgement",
+    "single Base64 body integrity",
+    "fresh StackScript validation",
+    "direct IP response must not claim proxy authentication"
+  ],
+  "formalReview": "REQUIRED / PENDING",
+  "beta5Publication": {
+    "tag": "NOT CREATED",
+    "ghcr": "404 anonymous manifest lookup",
+    "release": "NOT CREATED"
+  },
+  "localDocker": {
+    "images": 5,
+    "size": "2.344GB",
+    "containers": 0,
+    "volumes": 0,
+    "buildCacheBytes": 0,
+    "dedicatedBuilder": "removed",
+    "localCandidateBuild": "cancelled during slow base-image pull; native ARM64 CI substituted",
+    "retainedRollback": "beta.4 plus existing beta.1/2/3",
+    "hostAvailable": "36GiB",
+    "otherProjectResources": "unchanged"
+  },
+  "agy": {
+    "totalCalls": 4,
+    "researchScout": 2,
+    "rootCauseChallenger": 0,
+    "designChallenger": 0,
+    "testDesigner": 0,
+    "embeddedReviewer": 2,
+    "completedResearch": 1,
+    "failedResearch": 1,
+    "completedEmbedded": 0,
+    "failedEmbedded": 2,
+    "reReview": 0,
+    "failures": [
+      "research native web timeout",
+      "embedded invocation missing timeout duration unit",
+      "embedded sole model API location unsupported"
+    ]
+  }
+}

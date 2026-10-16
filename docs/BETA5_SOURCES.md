@@ -4,7 +4,7 @@
 
 ## Linode Rebuild
 
-[官方 Rebuild API](https://techdocs.akamai.com/linode-api/reference/post-rebuild-linode-instance)；[官方 OpenAPI](https://github.com/linode/linode-api-openapi/blob/main/openapi.json)。本次取到 OpenAPI 4.229.1，下载文件 SHA-256 `bb8daa30ee983e393e343cf05cf078fa7b27a9f9a5b12fd97a901116a8dfc792`。
+[官方 Rebuild API](https://techdocs.akamai.com/linode-api/reference/post-rebuild-linode-instance)；[官方 OpenAPI](https://github.com/linode/linode-api-openapi/blob/main/openapi.json)。本次取到 OpenAPI 4.229.1，原始官方 [Git blob](https://api.github.com/repos/linode/linode-api-openapi/git/blobs/b3af5502ffd83bac8a4ddfdaee0082153db3019f) 固定，下载文件 SHA-256 `bb8daa30ee983e393e343cf05cf078fa7b27a9f9a5b12fd97a901116a8dfc792`。
 
 - 重装关机并删除所有磁盘与配置文件。网络接口不改变。本实现不提交 firewall、interfaces、type 或 region，不借此重绑防火墙或调整实例身份。
 - `metadata.user_data` 为一次 Base64 后最多 65535 字节，因此沿用 beta.4 原文最多 49149 UTF-8 字节。Shell / Cloud-init 仍须镜像 cloud-init 与地区 Metadata 能力。

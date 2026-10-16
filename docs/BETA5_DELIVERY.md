@@ -90,3 +90,24 @@ SOCKS5 与 SOCKS5H 按 Go 实现均由代理解析目标域名。HTTP 代理及�
 补充验收：AWS 签名在代理后的 HTTPS 目标端按原 `SignedHeaders` 集合复核，与官方 signer 一致（排除 Transport 自动增加但未签名的 HTTP 头）；四协议有／无认证全部通过。手机 390px 视口实际执行配置保存、重装 Cloud-init 参数与确认、队列提交及取消，不仅截图；4 次重装替身任务均受理后取消、真实云写 0。
 
 分链路响应的最后核对修正了一个诊断标注：直连成功响应不再附带“代理认证已通过”字段；该字段只在 proxy 模式成功时存在。真实 Go HTTP 后端的只读浏览器测试先恢复旧行为得到明确断言失败，再修复为通过，三项 IP 均实际成功。此修正不改变传输、凭据或任务派发。
+
+## 最终 CI、Docker 与无损升级
+
+功能与测试完整候选 SHA：`182e57759494c6fbcf6e3291d8259b524a9ea49a`。基础功能提交 `def00d37eaf4e8f5cfc265792c541b5c28e21d23`，后续包含签名／手机验收、原生 ARM64 CI 和直连诊断标注修正。
+
+- [最终 Push CI](https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/38861083422) 与 [最终 PR CI](https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/38861088428) 均 **completed / success**，`verify` 与 `arm64-runtime` 两个 Job 及全部步骤 success，没有将 skipped 记作通过。
+- AMD64 原生 Ubuntu runner：完整 Go race、vet、4 协议合同、历史构建／发行门禁测试、govulncheck、全部 HTTP 浏览器、Docker 构建与运行，以及 beta.4→候选 Compose 升级成功。
+- ARM64 原生 `ubuntu-24.04-arm`：显式 `uname -m=aarch64`，实际 Docker 构建、启动、健康、首次登录、密码修改、代理设置保存与重启／容器替换持久化、beta.4→候选升级全部通过。使用 scratch、UID 65532、只读根文件系统、cap-drop ALL、no-new-privileges 和 5m×3 日志限制。
+- 两架构升级均从正式 beta.4 Index Digest `sha256:1d1f45b4a357fd609e818606e549b0ebabb98e8486fd4e4c43f09e542c548560` 实际拉取，在独立 disposable Volume、同一 Compose 项目、同一端口与 Origin 完成。master.key SHA、管理员密码/settings 与非空加密云账号凭据行逐字节保持，强制重建后仍可登录。没有真实云写。
+
+镜像精确 ID、ARM64 bytes、源码标签、CI 各 Job URL 与检查时间记录在 [BETA5_EVIDENCE.json](BETA5_EVIDENCE.json)。它是 CI 内的本地候选镜像，未推 GHCR、未生成正式安装包，不是正式发行 digest。
+
+本机 ARM64 源码构建的基镜像下载缓慢，主动取消后由上述原生 ARM64 CI 完成验收；**本机未完成的构建不记 PASS**，未为等待下载重复搭建其他运行架构。专用 Builder、容器及缓存 Volume 已回收，两条本次 BuildKit 镜像引用定向删除（共享存储约 510MB），原始 11MB OpenAPI、部分下载与临时截图已清理。无 global prune，未触碰其他项目或正式数据。
+
+最终本机 Docker 为原有 5 个镜像、合计 **2.344GB**，0 容器、0 Volume、0 构建缓存；保留 beta.4 与 beta.1/2/3 回滚镜像以及原 Rust 镜像。只有原有 default/desktop-linux builder。检查时宿主可用 **36GiB**；没有宣称 Docker 删除逻辑存储一定等量缩小宿主虚拟磁盘。
+
+beta.5 Tag、GHCR manifest（匿名查询 404）、GitHub Release 均不存在；旧 beta.4 镜像匿名查询仍为原 Index Digest，审核变量仍为既有 beta.2/3/4 五项，本轮未新增或改写。main 未变，PR #1 继续 Open / Draft。回滚 beta.4 不具有新网络配置功能，不能把保留镜像理解为旧版会识别 beta.5 的代理设置。
+
+本轮 agy Specialist Calls：4；Research Scout 2，Root-Cause Challenger 0，Design Challenger 0，Test Designer 0，Embedded Reviewer 2。Embedded Review Calls：2 / 0 completed / 2 failed / 0 re-review。一次内嵌调用参数错误计入失败，修正后唯一模型仍因 API 地区限制失败；不等于正式审核通过。
+
+最后一次只补充上述交付说明、官方来源固定链接与机器可读证据，提交使用 `[skip ci]` 避免重复全量镜像构建。该证据提交在 cmd、internal、scripts、Go 依赖、Dockerfile、release 与 Workflow 上与已通过完整 CI 的 `182e577` 完全相同；最终 PR HEAD 为证据提交，不冒充它执行过另一轮 CI。
