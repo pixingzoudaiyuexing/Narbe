@@ -43,8 +43,18 @@ func (a *App) stopInventories() {
 	}
 }
 func (a *App) inventory(w http.ResponseWriter, r *http.Request) {
+	// Serialize snapshot selection and cache admission with egress changes. A
+	// request that selected an old client must not create a fresh cache entry
+	// after networkAPI has already invalidated that client's cached reads.
+	a.network.Lock()
+	defer a.network.Unlock()
+	ns, err := a.networkLocked()
+	if err != nil {
+		fail(w, 500, "网络配置不可用")
+		return
+	}
 	// Always re-check retirement and credential revision before returning cached data.
-	acc, p, err := a.provider(r.URL.Query().Get("accountId"))
+	acc, p, err := a.providerContext(context.WithValue(r.Context(), networkContext{}, ns), r.URL.Query().Get("accountId"))
 	if err != nil {
 		fail(w, 400, "云账号不存在或凭据无法读取")
 		return

@@ -66,7 +66,7 @@ func (a *AWS) call(ctx context.Context, region, action string, params url.Values
 	resp, e := a.h.Do(req)
 	mut := !strings.HasPrefix(action, "Describe")
 	if e != nil {
-		return &Error{Code: "网络中断，请核实云端结果", Uncertain: mut}
+		return &Error{Code: NetworkError(e), Uncertain: mut}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

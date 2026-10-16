@@ -1,3 +1,7 @@
+当前 **beta.5 云 API 出口及 Linode 重装脚本**的 Formal Independent Review REQUIRED / PENDING。已发布 beta.4 的正式 PASS 不覆盖本轮。候选不发布、不合并 main、不变更 Owner 部署。审核范围、攻击面、实测／替身分级与缺口见 [BETA5_DELIVERY.md](BETA5_DELIVERY.md)，官方依据见 [BETA5_SOURCES.md](BETA5_SOURCES.md)。后续发行配置仍须单独准备及审核，beta.4 的发行双 SHA 不授权发布本轮业务代码。
+
+以下为历史记录，PENDING/PASS 仅对各自当时基线生效。
+
 当前beta.4（四云创建初始化脚本及Linode StackScripts）正式独立审核 REQUIRED / PENDING。beta.3应用与发行配置均已通过正式审核并发布，其PASS不覆盖本轮新增代码。当前交付矩阵/截图、真实与Mock分级见 [BETA4_DELIVERY.md](BETA4_DELIVERY.md)，官方接口与安全限制见 [BETA4_SOURCES.md](BETA4_SOURCES.md)。本轮不发布beta.4、不改Owner部署、main或旧Tag/镜像。
 
 以下为历史审核记录，各PENDING/PASS只对各自基线生效。

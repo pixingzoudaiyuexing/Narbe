@@ -11,21 +11,23 @@ type LinodeAdvanced interface {
 }
 
 type LinodeChange struct {
-	Snapshot        string             `json:"snapshot"`
-	BindingSnapshot string             `json:"bindingSnapshot,omitempty"`
-	Image           string             `json:"image,omitempty"`
-	Password        string             `json:"password,omitempty"`
-	Key             string             `json:"key,omitempty"`
-	SSHPublicKey    string             `json:"sshPublicKey,omitempty"`
-	Plan            string             `json:"plan,omitempty"`
-	Region          string             `json:"region,omitempty"`
-	Label           string             `json:"label,omitempty"`
-	DiskID          int                `json:"diskId,omitempty"`
-	InterfaceID     int                `json:"interfaceId,omitempty"`
-	Firewall        *FirewallSelection `json:"firewall,omitempty"`
-	Rules           *FirewallRules     `json:"rules,omitempty"`
-	Status          string             `json:"status,omitempty"`
-	Acknowledge     bool               `json:"acknowledge"`
+	Startup              *StartupInput      `json:"startup,omitempty"`
+	MetadataAcknowledged bool               `json:"metadataAcknowledged,omitempty"`
+	Snapshot             string             `json:"snapshot"`
+	BindingSnapshot      string             `json:"bindingSnapshot,omitempty"`
+	Image                string             `json:"image,omitempty"`
+	Password             string             `json:"password,omitempty"`
+	Key                  string             `json:"key,omitempty"`
+	SSHPublicKey         string             `json:"sshPublicKey,omitempty"`
+	Plan                 string             `json:"plan,omitempty"`
+	Region               string             `json:"region,omitempty"`
+	Label                string             `json:"label,omitempty"`
+	DiskID               int                `json:"diskId,omitempty"`
+	InterfaceID          int                `json:"interfaceId,omitempty"`
+	Firewall             *FirewallSelection `json:"firewall,omitempty"`
+	Rules                *FirewallRules     `json:"rules,omitempty"`
+	Status               string             `json:"status,omitempty"`
+	Acknowledge          bool               `json:"acknowledge"`
 }
 type FirewallSelection struct {
 	Snapshot        string         `json:"snapshot,omitempty"`
@@ -79,6 +81,7 @@ type LinodeConfig struct {
 	} `json:"interfaces"`
 }
 type LinodeState struct {
+	HasUserData    *bool             `json:"hasUserData"`
 	Instance       Instance          `json:"instance"`
 	Generation     string            `json:"generation"`
 	Locks          []string          `json:"locks"`

@@ -121,8 +121,14 @@ export function bindStartup({
   }
   function update(next) {
     catalog = next;
-    image = catalog?.images?.find((i) => i.id === form.elements.image.value);
-    region = catalog?.regions?.find((r) => r.id === form.elements.region.value);
+    image = catalog?.images?.find(
+      (i) => i.id === (form.elements.image || form.elements.newImage).value,
+    );
+    region = catalog?.regions?.find(
+      (r) =>
+        r.id ===
+        (form.elements.region?.value || form.dataset.startupRegion || ""),
+    );
     const value = mode.value,
       all = enabledModes();
     if (value !== "none" && !all.includes(value)) all.push(value);
@@ -133,8 +139,8 @@ export function bindStartup({
       )
       .join("");
     const identity = [
-      form.elements.region.value,
-      form.elements.image.value,
+      form.elements.region?.value || form.dataset.startupRegion || "",
+      (form.elements.image || form.elements.newImage).value,
     ].join("|");
     if (identity !== lastCompatibility) {
       form.elements.scriptCompatibilityAck.checked = false;

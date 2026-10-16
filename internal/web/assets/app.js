@@ -1,3 +1,4 @@
+import { networkSettings } from "./network-ui.js";
 import { startupFields, bindStartup } from "./startup-ui.js";
 import {
   initLinode,
@@ -441,6 +442,8 @@ function heading(title, sub, button = "") {
 function render() {
   if (!state.csrf) return;
   const content = document.querySelector("#content");
+  if (state.tab === "settings" && content?.querySelector("#password-form"))
+    return;
   if (!content) return;
   document
     .querySelectorAll("[data-nav]")
@@ -1105,6 +1108,7 @@ async function createDialog() {
 async function submit(body) {
   const c = await api("confirm", { method: "POST", body });
   body.confirmation = c.confirmation;
+  body.networkRevision = c.networkRevision;
   body.accountRevision = c.accountRevision;
   await api("jobs", { method: "POST", body });
   state.tab = "jobs";
@@ -1205,7 +1209,7 @@ function startupDetails(job) {
     s.execution === "submitted-unverified"
       ? "初始化脚本已提交，实际执行结果请登录服务器检查。"
       : s.execution === "submission-unknown"
-        ? "脚本提交结果未知，请先到云控制台核实实例；不要重复创建。"
+        ? "脚本提交结果未知，请先到云控制台核实实例；不要重复创建或重装。"
         : "尚未确认脚本已提交，不代表已执行。";
   return `<details class="startup-ledger"><summary>初始化脚本摘要与检查方法</summary><p>${esc(status)}</p><dl class="summary"><dt>模式 / ${s.stackscriptId ? "参数" : "脚本"}UTF-8字节</dt><dd>${esc(s.mode)} · ${s.bytes}</dd><dt>SHA-256</dt><dd class="mono">${esc(s.sha256)}</dd>${s.stackscriptId ? `<dt>StackScript</dt><dd>${esc(s.stackscriptName)} · ${s.stackscriptId}<br>脚本及定义版本 SHA-256：${esc(s.stackscriptSnapshot || "未确认")}</dd>` : ""}</dl><p class="help">实例创建、运行或资源就绪不代表脚本执行成功。${job.provider === "aws" ? "AWS Windows可检查 C:\\ProgramData\\Amazon\\EC2Launch\\log\\agent.log（具体路径取决于代理版本）。" : ""} Linux cloud-init可检查 /var/log/cloud-init.log 和 /var/log/cloud-init-output.log；Azure Linux Agent可检查 /var/log/waagent.log。StackScript输出取决于脚本自身，请登录新机核实，不在Narbe日志中打印脚本或参数。</p></details>`;
 }
@@ -1272,6 +1276,7 @@ function renderSettings(el) {
   el.innerHTML =
     heading("设置", "管理工作台的登录密码。") +
     `<form class="panel settings" id="password-form"><h2>更改管理员密码</h2><p class="sub">更改后所有登录会话都会失效，需要重新登录。</p><div class="error-box" role="alert"></div><label class="field">当前密码<input name="current" type="password" autocomplete="current-password" required></label><label class="field">新密码<input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="256" required><p class="help">至少 12 字符，建议使用密码管理器生成独立密码。</p></label><label class="field">再次输入新密码<input name="confirm" type="password" autocomplete="new-password" required></label><button class="primary" type="submit">更新密码</button></form>`;
+  networkSettings(el, { api, esc, formAction, accounts: () => state.accounts });
   const f = el.querySelector("form");
   f.onsubmit = (e) => {
     e.preventDefault();

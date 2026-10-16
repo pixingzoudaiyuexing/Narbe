@@ -44,10 +44,8 @@ func TestInventorySlowCompletedScanRemainsReadable(t *testing.T) {
 func TestInventoryExpiredPartialLineageForcesFullAWSRescan(t *testing.T) {
 	h := setup(t)
 	defer h.a.stopInventories()
-	old := http.DefaultTransport
-	defer func() { http.DefaultTransport = old }()
 	var eastReads atomic.Int32
-	http.DefaultTransport = inventoryRoundTrip(func(r *http.Request) (*http.Response, error) {
+	fixtureTransport := inventoryRoundTrip(func(r *http.Request) (*http.Response, error) {
 		_ = r.ParseForm()
 		action := r.Form.Get("Action")
 		status := 200
@@ -71,7 +69,9 @@ func TestInventoryExpiredPartialLineageForcesFullAWSRescan(t *testing.T) {
 		}
 		return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
 	})
-	h.a.Factory = cloud.New
+	h.a.Factory = func(name string, c cloud.Credentials) (cloud.Provider, error) {
+		return cloud.NewWithClient(name, c, &http.Client{Transport: fixtureTransport})
+	}
 	r := h.request("POST", "accounts", map[string]any{"name": "AWS expiry fixture", "provider": "aws", "credentials": map[string]string{"accessKeyId": "fixture", "secretAccessKey": "fixture-not-real"}}, true)
 	if r.Code != 201 {
 		t.Fatal(r.Code, r.Body.String())

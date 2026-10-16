@@ -2,13 +2,13 @@
 
 轻量、中文优先的单用户多云服务器工作台。Go + SQLite + 内嵌 Web，单个非 root Docker 容器，无 MySQL、Redis 或前端运行时。
 
-**已发布版本为 [v0.1.0-beta.3](https://github.com/pixingzoudaiyuexing/Narbe/releases/tag/v0.1.0-beta.3)**，应用和发行配置已分别正式审核，双架构GHCR镜像、匿名安装及beta.2升级已验证。测试版不宣称生产稳定；真实云写E2E与旧CloudPanel完整覆盖仍有缺口。
+**已发布版本为 [v0.1.0-beta.4](https://github.com/pixingzoudaiyuexing/Narbe/releases/tag/v0.1.0-beta.4)**，已完成应用及发行专项正式审核。测试版不宣称生产稳定；真实云写 E2E 与旧 CloudPanel 完整覆盖仍有缺口。
 
-> 本分支新增 `v0.1.0-beta.4` 候选：四云创建初始化脚本、Linode Metadata/StackScripts与动态UDF。**本轮正式Independent Review REQUIRED / PENDING，不发布beta.4、不合并main、不修改Owner部署。** 覆盖与截图见 [BETA4_DELIVERY.md](docs/BETA4_DELIVERY.md)；API/限制及日志说明见 [BETA4_SOURCES.md](docs/BETA4_SOURCES.md)。
+> 本分支新增 **beta.5 候选**：四云 API 全局直连／HTTP、HTTPS、SOCKS5、SOCKS5H 代理，三条独立出口 IP 检测、只读云 API 诊断，以及 Linode 重装初始化脚本。**Formal Independent Review REQUIRED / PENDING；不发布 beta.5、不合并 main、不修改 Owner 部署。** 覆盖、安全配置、截图与证据见 [BETA5_DELIVERY.md](docs/BETA5_DELIVERY.md)，接口依据见 [BETA5_SOURCES.md](docs/BETA5_SOURCES.md)。
 
 ## 已发布测试版安装
 
-从 [beta.3 Release](https://github.com/pixingzoudaiyuexing/Narbe/releases/tag/v0.1.0-beta.3) 下载官方安装包，服务器无需编译源码。版本与digest固定，不使用latest。安装/无损升级见 [发布说明](release/README.md)；下文仍保留源码开发流程。
+从 [beta.4 Release](https://github.com/pixingzoudaiyuexing/Narbe/releases/tag/v0.1.0-beta.4) 下载已发布安装包。版本与 digest 固定，不使用 latest。安装说明见 [发布说明](release/README.md)；下文保留候选源码开发流程。beta.5 目前没有正式安装包或 GHCR 版本。
 
 ## 安装
 

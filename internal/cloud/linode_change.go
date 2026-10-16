@@ -2,6 +2,7 @@ package cloud
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,7 +27,7 @@ func linodeLabel(s string) error {
 }
 func (l *Linode) ValidateChange(ctx context.Context, id, action string, c LinodeChange) error {
 	fields := map[string][]string{
-		"rebuild": {"image", "password", "key", "sshPublicKey"}, "resize": {"plan"}, "password-reset": {"password", "diskId"}, "clone": {"plan", "region", "label", "firewall"}, "migrate": {"region"}, "firewall-create": {"label", "rules"}, "firewall-rules": {"rules"}, "firewall-status": {"status"}, "firewall-delete": {}, "firewall-bind": {"interfaceId", "firewall", "bindingSnapshot"}}
+		"rebuild": {"image", "password", "key", "sshPublicKey", "startup", "metadataAcknowledged"}, "resize": {"plan"}, "password-reset": {"password", "diskId"}, "clone": {"plan", "region", "label", "firewall"}, "migrate": {"region"}, "firewall-create": {"label", "rules"}, "firewall-rules": {"rules"}, "firewall-status": {"status"}, "firewall-delete": {}, "firewall-bind": {"interfaceId", "firewall", "bindingSnapshot"}}
 	allowed := map[string]bool{"snapshot": true, "acknowledge": true}
 	for _, k := range fields[action] {
 		allowed[k] = true
@@ -150,6 +151,21 @@ func (l *Linode) ValidateChange(ctx context.Context, id, action string, c Linode
 		if !ok || im.Deprecated || im.Disk > s.Instance.Disk {
 			return errors.New("重装镜像不可用或大于当前套餐磁盘")
 		}
+		if !c.MetadataAcknowledged {
+			return errors.New("请确认重装删除磁盘及Metadata不会自动延续")
+		}
+		startup := c.Startup.Spec(c.Image, s.Instance.Region)
+		if err := ValidateStartup("linode", startup, cat); err != nil {
+			return err
+		}
+		if startup.ScriptMode == "stackscript" {
+			if strings.HasPrefix(c.Image, "private/") {
+				return errors.New("Linode Rebuild不支持私有镜像与StackScript组合")
+			}
+			if err := l.ValidateStackScript(ctx, startup); err != nil {
+				return err
+			}
+		}
 		if c.Password == "" && c.SSHPublicKey == "" && c.Key == "" {
 			return errors.New("重装需要root密码或SSH公钥")
 		}
@@ -241,6 +257,11 @@ func (l *Linode) ValidateChange(ctx context.Context, id, action string, c Linode
 	return nil
 }
 func (l *Linode) Change(ctx context.Context, id, action string, c LinodeChange, token string) (op Operation, err error) {
+	if action == "rebuild" {
+		if e := l.ValidateChange(ctx, id, action, c); e != nil {
+			return op, e
+		}
+	}
 	op = Operation{ResourceID: id, Linode: &LinodeOperation{Action: action, Label: c.Label, Plan: c.Plan, Image: c.Image, SourceID: id, Firewall: c.Firewall, InterfaceID: c.InterfaceID, DiskID: c.DiskID, StartedAt: time.Now().Unix()}}
 	if action == "firewall-create" || action == "firewall-rules" {
 		op.Linode.ExpectedRules = c.Rules
@@ -356,6 +377,18 @@ func (l *Linode) Change(ctx context.Context, id, action string, c LinodeChange, 
 	case "rebuild":
 		path += "rebuild"
 		b := map[string]any{"image": c.Image, "booted": true}
+		startup := c.Startup.Spec(c.Image, s.Instance.Region)
+		if startup.ScriptMode == "shell" || startup.ScriptMode == "cloud-config" {
+			b["metadata"] = map[string]string{"user_data": base64.StdEncoding.EncodeToString([]byte(startup.UserData))}
+		}
+		if startup.ScriptMode == "stackscript" {
+			b["stackscript_id"] = startup.StackScriptID
+			data := startup.StackScriptData
+			if data == nil {
+				data = map[string]string{}
+			}
+			b["stackscript_data"] = data
+		}
 		if c.Password != "" {
 			b["root_pass"] = c.Password
 		}

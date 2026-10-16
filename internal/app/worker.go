@@ -76,11 +76,21 @@ func (a *App) runOne(parent context.Context) bool {
 		a.finish(id, "failed", "任务数据损坏", cloud.Operation{}, nil)
 		return true
 	}
+	ns, err := a.networkSnapshot()
+	if err != nil {
+		a.finish(id, "failed", "网络配置不可用，未发送操作", cloud.Operation{}, err)
+		return true
+	}
+	if b.NetworkRevision != ns.Revision {
+		a.finish(id, "cancelled", "网络出口已变化，未发送操作；请重新确认", cloud.Operation{}, nil)
+		return true
+	}
+	ctx = context.WithValue(ctx, networkContext{}, ns)
 	if e = a.validate(ctx, b); e != nil {
 		a.finish(id, "failed", "配置检查未通过；未发送云操作", cloud.Operation{}, e)
 		return true
 	}
-	acc, p, e := a.provider(b.AccountID)
+	acc, p, e := a.providerContext(ctx, b.AccountID)
 	if e != nil {
 		a.finish(id, "failed", "云账号无法读取", cloud.Operation{}, e)
 		return true
@@ -133,9 +143,9 @@ func (a *App) runOne(parent context.Context) bool {
 	}
 	ctx = cloud.WithDispatchDeadline(ctx, time.Unix(created, 0).Add(store.MaxQueuedAge))
 	ctx = cloud.WithOperationRecorder(ctx, func(checkpoint cloud.Operation) error {
-		if b.Action == "create" {
-			checkpoint.Startup = cloud.SummarizeStartup(b.Spec)
-			if checkpoint.Startup != nil && checkpoint.ResourceID != "" {
+		if b.Action == "create" || b.Action == "rebuild" {
+			checkpoint.Startup = cloud.SummarizeStartup(startupSpec(b))
+			if b.Action == "create" && checkpoint.Startup != nil && checkpoint.ResourceID != "" {
 				checkpoint.Startup.Execution = "submitted-unverified"
 			}
 		}
@@ -153,7 +163,7 @@ func (a *App) runOne(parent context.Context) bool {
 		}
 		return nil
 	})
-	startup := cloud.SummarizeStartup(b.Spec)
+	startup := cloud.SummarizeStartup(startupSpec(b))
 	ledger := op.Ledger
 	if cloud.LinodeAction(b.Action) {
 		advanced, ok := p.(cloud.LinodeAdvanced)
@@ -249,4 +259,11 @@ func (a *App) runOne(parent context.Context) bool {
 		case <-time.After(4 * time.Second):
 		}
 	}
+}
+
+func startupSpec(b mutation) cloud.Spec {
+	if b.Action == "rebuild" && b.Advanced != nil {
+		return b.Advanced.Startup.Spec(b.Advanced.Image, b.Region)
+	}
+	return b.Spec
 }

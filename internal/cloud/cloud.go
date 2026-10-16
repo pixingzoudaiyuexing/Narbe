@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 )
 
 type Credentials map[string]string
@@ -134,7 +133,13 @@ func (e *Error) Error() string {
 }
 func Uncertain(err error) bool { var e *Error; return errors.As(err, &e) && e.Uncertain }
 func New(name string, c Credentials) (Provider, error) {
-	h := &http.Client{Timeout: 40 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	h, err := NewEgressClient(Egress{Mode: "direct"}, "")
+	if err != nil {
+		return nil, err
+	}
+	return NewWithClient(name, c, h)
+}
+func NewWithClient(name string, c Credentials, h *http.Client) (Provider, error) {
 	switch name {
 	case "aws":
 		return &AWS{c: c, h: h}, nil
@@ -290,7 +295,7 @@ func (r rest) request(ctx context.Context, method, path string, body, out any, f
 	}
 	resp, e := r.h.Do(req)
 	if e != nil {
-		return nil, &Error{Code: "网络中断，请核实云端结果", Uncertain: method != "GET"}
+		return nil, &Error{Code: NetworkError(e), Uncertain: method != "GET"}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

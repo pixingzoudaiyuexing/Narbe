@@ -38,6 +38,7 @@ func (l *Linode) state(ctx context.Context, id string) (LinodeState, error) {
 	path := "/linode/instances/" + id
 	var v struct {
 		linInstance
+		HasUserData         *bool             `json:"has_user_data"`
 		InterfaceGeneration string            `json:"interface_generation"`
 		PlacementGroup      *struct{ ID int } `json:"placement_group"`
 		Locks               []string          `json:"locks"`
@@ -49,6 +50,7 @@ func (l *Linode) state(ctx context.Context, id string) (LinodeState, error) {
 	if fmt.Sprint(v.ID) != id || v.Region == "" || v.Label == "" || v.Type == "" {
 		return s, &Error{Code: "实例身份响应不完整"}
 	}
+	s.HasUserData = v.HasUserData
 	s.Instance = v.linInstance.instance()
 	s.Generation = v.InterfaceGeneration
 	s.Locks = v.Locks
@@ -85,8 +87,9 @@ func (l *Linode) state(ctx context.Context, id string) (LinodeState, error) {
 		Interfaces                                []LinodeInterface
 		Locks                                     []string
 		PlacementGroup, Managed                   bool
+		HasUserData                               *bool
 		Volumes                                   any
-	}{id, v.Label, v.Region, v.Type, v.Image, s.Generation, s.Disks, s.Configs, s.Interfaces, s.Locks, s.PlacementGroup, s.Managed, s.Volumes})
+	}{id, v.Label, v.Region, v.Type, v.Image, s.Generation, s.Disks, s.Configs, s.Interfaces, s.Locks, s.PlacementGroup, s.Managed, s.HasUserData, s.Volumes})
 	s.QueriedAt = time.Now().Unix()
 	return s, nil
 }

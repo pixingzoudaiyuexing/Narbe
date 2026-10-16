@@ -66,6 +66,9 @@ func (a *App) validateLinode(ctx context.Context, b mutation, p cloud.Provider) 
 		return errors.New("高级操作参数无效")
 	}
 	c := *b.Advanced
+	if b.Action == "rebuild" && !c.MetadataAcknowledged {
+		return errors.New("请确认重装会删除原磁盘及配置，Metadata需要重新配置")
+	}
 	if strings.HasPrefix(b.Action, "firewall-") && b.Action != "firewall-bind" {
 		if b.Region != "" {
 			return errors.New("账号防火墙不使用实例地区")

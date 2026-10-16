@@ -39,7 +39,7 @@ func (a *Azure) token(ctx context.Context) (string, error) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	res, e := a.h.Do(req)
 	if e != nil {
-		return "", &Error{Code: "Azure 认证服务不可达"}
+		return "", &Error{Code: NetworkError(e)}
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {

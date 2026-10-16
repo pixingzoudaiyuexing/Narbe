@@ -1,3 +1,4 @@
+import { startupFields, bindStartup } from "./startup-ui.js";
 import {
   configLabel,
   priceLabel,
@@ -426,6 +427,10 @@ async function advancedDialog(s, acc, action) {
     fields += `<label class="field">目标配置<select name="newPlan" required></select></label>`;
   if (action === "rebuild")
     fields += `<label class="field">重装系统镜像<select name="newImage" required></select></label><label class="field">新root密码（与SSH公钥至少选一项）<input name="password" type="password" autocomplete="new-password" maxlength="128"></label><label class="field">SSH公钥<textarea name="publicKey" placeholder="ssh-ed25519 …"></textarea></label><label class="field">已有SSH密钥<select name="newKey"></select></label>`;
+  if (action === "rebuild")
+    fields +=
+      startupFields() +
+      `<p class="notice">重装会清除所有现有磁盘及配置。当前Metadata：${s.hasUserData === true ? "已存在" : s.hasUserData === false ? "未配置" : "未核实"}。不提交新Metadata不能保证延续旧User Data；需要继续使用时请重新配置。云防火墙绑定及网络接口不随脚本改变。</p><label class="check"><input name="metadataAcknowledged" type="checkbox" required>已备份磁盘，理解Metadata需要重新配置且API成功不代表脚本执行成功</label><div data-rebuild-startup-summary class="notice"></div>`;
   if (action === "password-reset")
     fields += `<label class="field">系统磁盘<select name="newDisk" required>${ctx.options(s.disks.filter((d) => ["ext3", "ext4"].includes(d.filesystem)).map((d) => ({ id: String(d.id), name: d.label + ` · ${d.size} MB · ${d.filesystem}` })))}</select></label><label class="field">新root密码<input name="password" type="password" autocomplete="new-password" minlength="11" maxlength="128" required></label><p class="help">避免常见、重复或易猜密码；最终强度由Linode检查。多个系统盘必须明确选择要修改的磁盘。</p>`;
   if (action === "clone" || action === "firewall-bind")
@@ -437,6 +442,27 @@ async function advancedDialog(s, acc, action) {
     `<form class="advanced-form"><div class="error-box" role="alert"></div>${instanceSummary(s, acc)}<p class="notice">${warnings[action]}</p>${fields}<div class="target-comparison"></div><label class="check"><input name="acknowledge" type="checkbox" required>已了解并确认以上影响</label><label class="field">输入服务器名称「${escape(source.name)}」确认<input name="confirmName" required autocomplete="off"></label><div class="dialog-actions"><button type="button" data-close>取消</button><button class="danger" type="submit" ${needsCatalog ? "disabled" : ""}>核实并确认${title}</button></div></form>`,
   );
   const f = ctx.dialog.querySelector("form");
+  f.dataset.startupRegion = source.region;
+  let startup;
+  startup =
+    action === "rebuild"
+      ? bindStartup({
+          form: f,
+          provider: "linode",
+          aid: acc.id,
+          revision: acc.revision,
+          api: ctx.api,
+          esc: escape,
+          options: ctx.options,
+          changed: () => {
+            if (f.isConnected)
+              f.querySelector("[data-rebuild-startup-summary]").textContent =
+                startup?.summary() || "";
+          },
+        })
+      : null;
+  if (f.elements.newImage)
+    f.elements.newImage.onchange = () => startup?.update(catalog);
   if (action === "clone" || action === "firewall-bind")
     loadFirewallOptions(f, acc.id);
   let binding = "";
@@ -490,6 +516,10 @@ async function advancedDialog(s, acc, action) {
           "不使用已有密钥",
         );
       show();
+      if (startup) {
+        startup.update(catalog);
+        f.elements.newImage.onchange = () => startup.update(catalog);
+      }
       f.querySelector("button[type=submit]").disabled = false;
     } catch (e) {
       if (f.isConnected && n === gen)
@@ -558,6 +588,11 @@ async function advancedDialog(s, acc, action) {
         snapshot: s.snapshot,
         acknowledge: f.elements.acknowledge.checked,
       };
+      if (startup) {
+        if (!startup.valid()) throw Error("请检查初始化脚本、镜像和参数");
+        p.startup = startup.spec();
+        p.metadataAcknowledged = f.elements.metadataAcknowledged.checked;
+      }
       if (f.elements.password) p.password = f.elements.password.value;
       if (f.elements.publicKey) p.sshPublicKey = f.elements.publicKey.value;
       if (f.elements.newKey) p.key = f.elements.newKey.value;

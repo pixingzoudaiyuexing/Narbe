@@ -1007,3 +1007,42 @@ td button.name {
 .firewall-picker [hidden] {
   display: none !important;
 }
+
+.network-settings [hidden],
+.startup-fields [hidden] {
+  display: none !important;
+}
+.network-settings pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.network-settings {
+  max-width: 900px;
+  padding: 22px;
+  margin-top: 24px;
+}
+.network-settings .field {
+  margin-bottom: 0;
+}
+.network-settings form,
+.network-settings [data-proxy-fields] {
+  display: grid;
+  gap: 18px;
+}
+.network-settings form {
+  margin-top: 22px;
+}
+.network-settings form > button {
+  justify-self: start;
+}
+.network-diagnostics {
+  border-top: 1px solid var(--line);
+  margin-top: 26px;
+  padding-top: 22px;
+}
+.network-diagnostics pre {
+  background: var(--paper);
+  border-radius: 7px;
+  padding: 12px;
+  line-height: 1.65;
+}

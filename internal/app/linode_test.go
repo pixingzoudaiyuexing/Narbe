@@ -74,7 +74,11 @@ func advancedSetup(t *testing.T) (*harness, *advancedFake, string) {
 	return h, f, aid
 }
 func advancedIntent(aid, action string) map[string]any {
-	return map[string]any{"id": "advanced-intent-fixture-001", "accountId": aid, "action": action, "region": "us-east", "target": "123", "name": "source", "spec": map[string]any{}, "advanced": map[string]any{"snapshot": "source-snapshot", "acknowledge": true, "password": "fixtureStrong-Unused-294!"}, "confirmation": "", "confirmName": "source"}
+	b := map[string]any{"id": "advanced-intent-fixture-001", "accountId": aid, "action": action, "region": "us-east", "target": "123", "name": "source", "spec": map[string]any{}, "advanced": map[string]any{"snapshot": "source-snapshot", "acknowledge": true, "password": "fixtureStrong-Unused-294!"}, "confirmation": "", "confirmName": "source"}
+	if action == "rebuild" {
+		b["advanced"].(map[string]any)["metadataAcknowledged"] = true
+	}
+	return b
 }
 func confirmAdvanced(t *testing.T, h *harness, b map[string]any) {
 	t.Helper()

@@ -603,6 +603,8 @@ async function completeAction(action, name = "fixture-source") {
   const form = dialog.locator("form"),
     before = jobs.length;
   await form.locator('[name="acknowledge"]').check();
+  if (action === "rebuild")
+    await form.locator('[name="metadataAcknowledged"]').check();
   await form.locator('[name="confirmName"]').fill(name);
   await form.locator('button[type="submit"]').click();
   await dialog.waitFor({ state: "hidden" });

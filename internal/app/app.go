@@ -22,6 +22,7 @@ import (
 
 type Factory func(string, cloud.Credentials) (cloud.Provider, error)
 type App struct {
+	network        networkRuntime
 	S              *store.Store
 	Origin         string
 	Factory        Factory
@@ -43,6 +44,7 @@ type account struct {
 	Revision int    `json:"revision"`
 }
 type mutation struct {
+	NetworkRevision int                 `json:"networkRevision,omitempty"`
 	Advanced        *cloud.LinodeChange `json:"advanced,omitempty"`
 	ID              string              `json:"id"`
 	AccountID       string              `json:"accountId"`
@@ -72,7 +74,7 @@ type job struct {
 }
 
 func New(s *store.Store, origin string) *App {
-	return &App{S: s, Origin: strings.TrimRight(origin, "/"), Factory: cloud.New, Lifecycle: lifecycle.New(), attempts: map[string][]time.Time{}, loginSlots: make(chan struct{}, 2), wake: make(chan struct{}, 1), inventories: map[string]*inventoryEntry{}, inventorySlots: make(chan struct{}, 2), advancedSlots: make(chan struct{}, 2)}
+	return &App{S: s, Origin: strings.TrimRight(origin, "/"), Lifecycle: lifecycle.New(), attempts: map[string][]time.Time{}, loginSlots: make(chan struct{}, 2), wake: make(chan struct{}, 1), inventories: map[string]*inventoryEntry{}, inventorySlots: make(chan struct{}, 2), advancedSlots: make(chan struct{}, 2)}
 }
 func (a *App) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -90,7 +92,7 @@ func (a *App) Handler() http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self' https://api64.ipify.org; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			w.Header().Set("Cache-Control", "no-store")
 		}
@@ -200,6 +202,9 @@ func (a *App) auth(next http.Handler) http.Handler {
 	})
 }
 func (a *App) provider(id string) (account, cloud.Provider, error) {
+	return a.providerContext(context.Background(), id)
+}
+func (a *App) providerContext(ctx context.Context, id string) (account, cloud.Provider, error) {
 	var acc account
 	var sealed []byte
 	e := a.S.DB.QueryRow("SELECT id,name,provider,credentials,created,revision FROM accounts WHERE id=? AND retired=0", id).Scan(&acc.ID, &acc.Name, &acc.Provider, &sealed, &acc.Created, &acc.Revision)
@@ -214,12 +219,16 @@ func (a *App) provider(id string) (account, cloud.Provider, error) {
 	if json.Unmarshal(raw, &c) != nil {
 		return acc, nil, errors.New("云凭据损坏")
 	}
-	p, e := a.Factory(acc.Provider, c)
+	p, e := a.factory(ctx, acc.Provider, c)
 	return acc, p, e
 }
 func (a *App) api(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/")
 	switch {
+	case path == "network":
+		a.networkAPI(w, r)
+	case path == "network/test":
+		a.networkTest(w, r)
 	case path == "session" && r.Method == "GET":
 		cookie, _ := r.Cookie("narbe_session")
 		var csrf string
@@ -321,7 +330,18 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		b.Confirmation = ""
-		acc, _, err := a.provider(b.AccountID)
+		a.network.Lock()
+		defer a.network.Unlock()
+		ns, err := a.networkLocked()
+		if err != nil {
+			fail(w, 500, err.Error())
+			return
+		}
+		b.NetworkRevision = ns.Revision
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+		r = r.WithContext(context.WithValue(ctx, networkContext{}, ns))
+		acc, _, err := a.providerContext(r.Context(), b.AccountID)
 		if err != nil {
 			fail(w, 400, err.Error())
 			return
@@ -341,7 +361,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 			fail(w, 500, "无法准备确认")
 			return
 		}
-		reply(w, 200, map[string]any{"confirmation": id, "accountRevision": b.AccountRevision})
+		reply(w, 200, map[string]any{"confirmation": id, "accountRevision": b.AccountRevision, "networkRevision": b.NetworkRevision})
 	case path == "jobs" && r.Method == "POST":
 		a.submit(w, r)
 	case path == "jobs" && r.Method == "GET":
@@ -415,7 +435,7 @@ func (a *App) accounts(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, e.Error())
 		return
 	}
-	p, e := a.Factory(b.Provider, b.Credentials)
+	p, e := a.factory(r.Context(), b.Provider, b.Credentials)
 	if e != nil {
 		cloudFail(w, e)
 		return
@@ -466,7 +486,7 @@ func (a *App) accountEdit(w http.ResponseWriter, r *http.Request, id string) {
 				fail(w, 400, e.Error())
 				return
 			}
-			p, e := a.Factory(acc.Provider, b.Credentials)
+			p, e := a.factory(r.Context(), acc.Provider, b.Credentials)
 			if e != nil {
 				cloudFail(w, e)
 				return
@@ -546,7 +566,19 @@ func (a *App) validate(ctx context.Context, b mutation) error {
 			return errors.New("请求标识无效")
 		}
 	}
-	acc, p, e := a.provider(b.AccountID)
+	ns, _ := ctx.Value(networkContext{}).(*networkState)
+	if ns == nil {
+		var err error
+		ns, err = a.networkSnapshot()
+		if err != nil {
+			return err
+		}
+		ctx = context.WithValue(ctx, networkContext{}, ns)
+	}
+	if b.NetworkRevision != ns.Revision {
+		return errors.New("网络出口已变化，请重新确认")
+	}
+	acc, p, e := a.providerContext(ctx, b.AccountID)
 	if e != nil {
 		return e
 	}
@@ -759,9 +791,21 @@ func (a *App) submit(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "请求格式无效")
 		return
 	}
+	a.network.Lock()
+	defer a.network.Unlock()
+	ns, err := a.networkLocked()
+	if err != nil {
+		fail(w, 500, err.Error())
+		return
+	}
+	r = r.WithContext(context.WithValue(r.Context(), networkContext{}, ns))
 	confirmation := b.Confirmation
+	if confirmation == "" {
+		fail(w, 409, "需要新的确认令牌")
+		return
+	}
 	b.Confirmation = ""
-	if b.Action == "create" && b.Spec.ScriptMode == "stackscript" {
+	if (b.Action == "create" && b.Spec.ScriptMode == "stackscript") || b.Action == "rebuild" {
 		var exists int
 		e := a.S.DB.QueryRow("SELECT count(*) FROM jobs WHERE id=?", b.ID).Scan(&exists)
 		if e != nil {
@@ -802,6 +846,10 @@ func (a *App) submit(w http.ResponseWriter, r *http.Request) {
 	}
 	if e != sql.ErrNoRows {
 		fail(w, 500, "任务查询失败")
+		return
+	}
+	if b.NetworkRevision != ns.Revision {
+		fail(w, 409, "网络出口已变化，请重新确认")
 		return
 	}
 	res, e := tx.Exec("DELETE FROM confirmations WHERE id=? AND digest=? AND expires>?", confirmation, store.Hash(string(raw)), store.Now())

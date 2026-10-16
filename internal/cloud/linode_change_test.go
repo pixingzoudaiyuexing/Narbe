@@ -290,6 +290,7 @@ func TestLinodeChangeRequiresFreshDestructiveAcknowledgement(t *testing.T) {
 			c := linodeFixtureChange(t, l)
 			switch action {
 			case "rebuild":
+				c.MetadataAcknowledged = true
 				c.Image = "linode/debian13"
 				c.SSHPublicKey = "ssh-ed25519 fixture"
 			case "resize":
@@ -328,6 +329,7 @@ func TestLinodeChangeRebuildSSHOnlyAndNoImplicitResize(t *testing.T) {
 	l, f := newLinodeChangeFixture(t)
 	c := linodeFixtureChange(t, l)
 	c.Image = "linode/debian13"
+	c.MetadataAcknowledged = true
 	c.SSHPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG4ZfwSWioVr3BPWuHucYrSQOgMzuEu3LCUXyJCDP+rZ fixture"
 	if err := l.ValidateChange(context.Background(), "1", "rebuild", c); err != nil {
 		t.Fatal(err)
