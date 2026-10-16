@@ -1,41 +1,41 @@
-# Narbe v0.1.0-beta.4 安装与使用
+# Narbe v0.1.0-beta.5 安装、升级与回滚
 
-这是已获正式测试预发布授权的 beta.4 安装说明。应用审核SHA `ebc933f2842be343ffcb6eefd240cdab54ef1b4d` 的 A 防火墙修复正式 PASS，发行审核SHA `5432c681bc66ec5d8f46914ad5cbc7dbd9fd3a04` 的 B Release Gate 正式 PASS，原四云初始化脚本业务已正式审核，综合发行资格 **APPROVED**。**本源码提交时发行执行尚未完成、尚未发布**；安装包可用状态以对应 GitHub Pre-release 页面实际附件为准。双SHA门禁分别核验应用与发行代码。beta.1/beta.2/beta.3保留，不使用latest。供Owner自行测试，不宣称生产稳定；支持Linux AMD64 / ARM64、AWS / Azure / Linode / DigitalOcean，单个Go + SQLite容器。
+**发行准备稿：尚未发布，下面的 beta.5 下载地址需等待正式发行后才可用。** 应用正式审核 PASS WITH CONDITIONS，应用 SHA 固定 `182e57759494c6fbcf6e3291d8259b524a9ea49a`，已审交付证据 HEAD 为 `800c5443cb5fb913e30fe71467642c6fdfa87b00`。发行配置独立复审 REQUIRED / PENDING，本阶段不设置两个 beta.5 审核变量，不执行 GHCR／Tag／Release 发布。
 
-需要已安装 Docker Engine 和 Docker Compose v2、Bash、curl、tar、sha256sum；服务器无需 Go、Node.js、MySQL 或 Redis。不会自动安装或改动系统 Docker。
+Go + SQLite、单个非 root 容器，支持 Linux AMD64 / ARM64 和 AWS、Azure、Linode、DigitalOcean。需要 Docker Engine、Compose v2、Bash、curl、tar、sha256sum；服务器无需 Go、Node.js、MySQL 或 Redis，不自动修改系统 Docker。测试版不宣称生产稳定。
 
-## 一键安装
+## 首次安装（正式发行后）
 
-在一个新目录中下载并验证发布安装包，不执行 curl 管道脚本：
+在新目录下载安装包并校验，不执行 curl 管道脚本：
 
 ```bash
-mkdir -p narbe-beta && cd narbe-beta
-curl -fL --retry 3 -o narbe-v0.1.0-beta.4-install.tar.gz https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.4/narbe-v0.1.0-beta.4-install.tar.gz
-curl -fL --retry 3 -o SHA256SUMS https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.4/SHA256SUMS
+mkdir -m 700 narbe-beta5 && cd narbe-beta5
+curl -fL --retry 3 -o narbe-v0.1.0-beta.5-install.tar.gz https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.5/narbe-v0.1.0-beta.5-install.tar.gz
+curl -fL --retry 3 -o SHA256SUMS https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.5/SHA256SUMS
 sha256sum -c SHA256SUMS
-tar -xzf narbe-v0.1.0-beta.4-install.tar.gz
+tar -xzf narbe-v0.1.0-beta.5-install.tar.gz
 ./install.sh
 ```
 
-按提示输入并确认至少12字符的独立管理员密码，输入不会显示。安装器只拉取 `image.env` 中版本＋digest锁定的GHCR镜像，不编译源码、不使用 latest。
+首次设置至少 12 字符管理员密码，不回显。安装器只拉取 `image.env` 中版本＋digest 锁定的 GHCR 镜像，不编译、不使用 latest。数据库已存在时不会用 bootstrap 文件覆盖改过的密码。
 
-首次在浏览器打开 `http://localhost:8080`，用刚设置的密码登录。默认只向宿主 `127.0.0.1:8080` 绑定，不能从公网直接访问。云账号凭据在网页中由 Owner 自己填写；发布与安装测试没有使用真实云凭据。
+默认绑定 `127.0.0.1:8080`，访问 `http://localhost:8080`。远程可使用 SSH 隧道 `ssh -L 8080:127.0.0.1:8080 your-user@your-server`。需要公开远程访问时使用可信 HTTPS 反向代理，保持管理端口不直接暴露公网，并将 `.env` 的 `NARBE_ORIGIN` 设为精确外部 origin；不信任 X-Forwarded-* 放宽认证。不自动改动 Owner 现有 HTTP／HTTPS 配置。
 
-## 远程访问
+## 网络出口与重装
 
-测试可以使用SSH加密隧道：
+设置页可选显式直连或 HTTP / HTTPS / SOCKS5 / SOCKS5H 代理，密码加密且不回显，编辑须保留／替换／明确清除。新网络配置取消旧 queued、作废旧确认；running 使用原确认出口，unknown 不重放，不自动绕过代理直连。
 
-```bash
-ssh -L 8080:127.0.0.1:8080 your-user@your-server
-```
+三项出口 IP 检测相互独立：浏览器不传 Narbe 会话或云凭据，服务器直连不读取环境代理，代理检测使用与云 API 相同配置。IP 成功只证明本次检测，云 API 是否授权须另做只读诊断。HTTP／未加密 SOCKS 不保证代理认证保密，公网推荐 HTTPS 或安全隧道；Go 的 SOCKS5 与 SOCKS5H 均由代理解析目标域名。代理不修改新 VPS 的系统网络。
 
-然后从本地浏览器访问 `http://localhost:8080`。如果本地端口更换，应把 `.env` 的 `NARBE_PORT` / `NARBE_ORIGIN` 与实际访问origin保持一致。
+默认拒绝环回、私网、Metadata 和保留地址。确需私网代理时，服务器管理员必须在自己的 Compose `environment` 中显式加入 `NARBE_PROXY_ALLOW_PRIVATE` 精确 RFC1918/ULA IP:端口授权，例如 `10.2.3.4:8443`；禁止任意网段、loopback 或 Metadata。仅在 `.env` 增加未声明变量不会自动注入容器。本安装包不默认开放任何私网代理地址。
 
-正式远程访问推荐使用已有的HTTPS反向代理：应用仍绑定loopback，代理转发到 `http://127.0.0.1:8080`；为自己的域名配置有效TLS证书，设置 `.env` 中 `NARBE_ORIGIN=https://你的域名`，随后运行 `./install.sh`。不要把未经TLS保护的8080直接绑定公网。应用不信任 X-Forwarded-* 来放宽认证或来源检查。反向代理不包含在本单容器安装包中，可复用宿主已有服务。
+Linode 重装支持不提交新脚本、Shell、Cloud-init、已有 StackScript 和动态 UDF。会删除所有磁盘及配置，必须备份并确认名称；省略新 Metadata 不保证旧 User Data 延续。脚本/UDF 绑定确认、加密持久化，不改变原防火墙和接口。API 受理、开机不等于脚本执行成功；可登录来宾检查 `/var/log/cloud-init.log`、`/var/log/cloud-init-output.log`，StackScript 依脚本自身日志。现有四云创建脚本能力保留，Azure Windows 本版仍不提供自动初始化脚本执行。
 
-## 状态、日志与重启
+真实云账号经生产代理的授权查询、第三方代理兼容、Linode Rebuild 后 Metadata / Cloud-init 执行及私人 StackScript IAM 尚未真实 E2E。合同替身、匿名 400/401、浏览器和 Docker 测试不能替代真实云验证；九项高级操作与原 CloudPanel 完整覆盖旧缺口继续保留。脚本权限较高，不要硬编码 Token 或私钥。新建 Linode 默认全部放行云防火墙，不改 OS 防火墙或已有绑定；Azure VM 删除后关联资源可能继续计费。
 
-始终使用同一组环境文件，以保留digest锁定：
+## 状态、停止、重启
+
+在实际安装目录中使用同一项目、环境文件及 Compose 配置：
 
 ```bash
 docker compose --env-file .env --env-file image.env -f compose.yaml ps
@@ -45,74 +45,54 @@ docker compose --env-file .env --env-file image.env -f compose.yaml start
 docker compose --env-file .env --env-file image.env -f compose.yaml restart
 ```
 
-也可以再次运行 `./install.sh`；它不会覆盖已有密码文件或数据库密码。日志为5MB×3轮转，不开启永久debug，不记录云密码或Token。
+可再次运行 `./install.sh`，不覆盖已有数据库或密码文件。日志 5MB×3，禁止长期 debug 或记录凭据。默认项目 `narbe`、Volume `narbe_narbe_data`；实际身份以原部署为准，不能假设示例就是 Owner 环境。
 
-## 数据与升级
+## beta.4 → beta.5（正式发行后）
 
-固定Compose项目名为 `narbe`，默认持久化Volume为 `narbe_narbe_data`，包含SQLite数据库、WAL和 `master.key`。容器替换、重启或同版本重新安装不会清空数据。
+先在**实际旧安装目录**执行 `pwd -P`、上面的 `ps`，用容器 Inspect 核实 `com.docker.compose.project`、工作目录、`/data` 的 Volume 和配置。先处理 queued/running 任务；重启会取消 queued，running/unknown 仍需核实，不能借升级重放云写。
 
-**禁止 `docker compose down -v`、删除正式Volume或替换主密钥。** 缺失/不匹配主密钥会拒绝启动，丢失原密钥不能解密云凭据。
+停止应用后完整备份 `/data`（SQLite、WAL、master.key 一起）和部署文件、密码文件；备份须保密。确认实际项目和 Volume 后，在新目录下载、验证 beta.5 安装包，复制原 `.env` 与密码文件，保留原 Compose 项目、数据 Volume、端口和 Origin。自定义 Compose 必须逐项保留配置，仅更新经验证的 `image.env` 镜像引用；不要用包内默认配置覆盖未知改动或创建空 Volume 冒充升级。
 
-升级到未来明确审核的版本时：停止应用并完整备份该Volume（包括数据库和master.key，备份应加密）；在新版本目录下载、校验完整安装包，复制原 `.env` 和 `secrets/admin-password`，保持固定项目名/同一数据Volume，运行新安装器。新 `image.env` 必须属于该明确版本的digest，不跟随latest。不要覆盖旧目录中的未知改动；升级后验证再检查旧镜像引用关系，回收不需要的旧镜像。不要全局prune或删持久化数据。
-
-已有数据库时，bootstrap密码文件不覆盖数据库内改过的管理员密码。密码文件放在0700私有目录下，0644单文件只读挂载使容器UID65532可读；不要开放其父目录。不要把 `.env`、密码文件、数据库和key公开上传。
-
-## 测试版边界
-
-原六项安全修复、四云聚合和beta.3九项Linode高级管理已正式审核。本轮A防火墙修复与B发行配置均已正式复审PASS，综合发行资格APPROVED；应用审核SHA与发行脚本审核SHA分别记录。包内release.json及release-evidence.json分别记录 `applicationReviewedSha`、`releaseReviewedSha`、`sourceSha` 与镜像digest；发行审核后只允许README/Notes文字后补，任何其他差异失败关闭。
-
-支持动态地区、规格和系统镜像查询，已有实例查询、创建及生命周期管理。云厂商差异、计费、配额及权限必须由 Owner 自行验证。
-
-* 九项Linode高级功能尚未通过真实云端完整E2E；四云真实创建/删除亦未完成，Mock和Docker成功不能替代。
-* 新建Linode默认明确不绑定云防火墙、全部放行，不等于OS防火墙关闭；不改账户全局策略。
-* 重装清除原本地磁盘/配置；克隆新增收费实例且要求源关机；迁移可能停机/换IP，不自动更新DNS。
-* 附加Volume、VPC/VLAN及托管关系等有保守限制，不自动删盘/脱离网络。
-* 原CloudPanel完整功能覆盖仍有证据缺口。
-* Azure删除只删除VM，磁盘、网卡、NSG、公网IP可能保留并继续产生部分费用。任务账本只确认来源，不证明资源当前存在或费用已停止；需到控制台核实。
-* 重启取消尚未派发的任务；未派发任务等待/校验最多5分钟。结果未知的已派发操作不会自动重放。
-
-版本、发布提交、应用审核SHA、发行审核SHA、index与两个平台manifest digest记录在 `release.json` 和 Release 附件 `release-evidence.json`。
-
-## beta.3 无损升级到 beta.4（实际发行完成后执行）
-
-先在真实安装目录执行 `pwd -P` 和 `docker compose --env-file .env --env-file image.env -f compose.yaml ps`，再通过容器Inspect核对 `com.docker.compose.project`、工作目录及 `/data` 的Volume身份；保留实际项目名、Volume、compose.yaml、.env和密码文件。不要假设下面示例目录适用于现有服务器。确认身份及没有queued/running任务后，先在原安装目录停止服务，再完整备份 `narbe_narbe_data` Volume（SQLite及master.key必须一起备份，备份文件妥善保密）。不要运行 `down -v`。在新的beta.4目录下载、校验安装包；以下示例假设beta.3旧目录为同级 `narbe-beta`（如你的目录为narbe-beta3，请替换三个旧路径），复制既有配置与密码文件：
+标准未自定义安装可在核实后按以下步骤操作；路径必须换成实际绝对路径：
 
 ```bash
 (
 set -euo pipefail
-# 在旧目录停止，保留容器和数据Volume
-cd narbe-beta
+old_dir=/替换为实际/beta4安装目录
+new_dir=/替换为新的/beta5目录
+backup_dir=/替换为新的/私有升级前备份目录
+cd "$old_dir"
 docker compose --env-file .env --env-file image.env -f compose.yaml stop
-backup_dir="../narbe-backup-$(date +%Y%m%d-%H%M%S)"
 mkdir -m 700 "$backup_dir"
 docker compose --env-file .env --env-file image.env -f compose.yaml cp narbe:/data "$backup_dir/data"
-cp .env "$backup_dir/deploy.env"
+cp .env image.env compose.yaml "$backup_dir/"
 mkdir -m 700 "$backup_dir/secrets"
 cp secrets/admin-password "$backup_dir/secrets/admin-password"
-cd ..
-mkdir -m 700 narbe-beta4 && cd narbe-beta4
-curl -fL --retry 3 -o narbe-v0.1.0-beta.4-install.tar.gz https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.4/narbe-v0.1.0-beta.4-install.tar.gz
-curl -fL --retry 3 -o SHA256SUMS https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.4/SHA256SUMS
+mkdir -m 700 "$new_dir" && cd "$new_dir"
+curl -fL --retry 3 -o narbe-v0.1.0-beta.5-install.tar.gz https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.5/narbe-v0.1.0-beta.5-install.tar.gz
+curl -fL --retry 3 -o SHA256SUMS https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.5/SHA256SUMS
 sha256sum -c SHA256SUMS
-tar -xzf narbe-v0.1.0-beta.4-install.tar.gz
-cp ../narbe-beta/.env .env
+tar -xzf narbe-v0.1.0-beta.5-install.tar.gz
+cp "$old_dir/.env" .env
 mkdir -m 700 secrets
-cp ../narbe-beta/secrets/admin-password secrets/admin-password
+cp "$old_dir/secrets/admin-password" secrets/admin-password
 ./install.sh
 docker compose --env-file .env --env-file image.env -f compose.yaml ps
 )
 ```
 
-使用固定Compose项目名 `narbe` 连接同一Volume，保留原管理员密码和凭据。不覆盖 `.env` 中的Origin或绑定地址，不修改HTTP/HTTPS配置。自定义过项目名/Volume或安装目录的部署，应保留实际同一项目及Volume身份，不能另建空Volume冒充升级。确认没有queued/running任务后再重启，避免取消仍在等待的操作；已派发结果未知的任务继续禁止自动重放。保留旧镜像和备份用于必要回滚。
+核对原密码登录、账号列表、SQLite、master.key、项目/Volume、端口和 Origin；验证前不删除旧镜像或升级前备份。密码文件父目录保持 0700，单文件 0644 只读挂载便于 UID 65532 读取；不得公开上传配置、密码、数据库或 key。
 
-## 初始化脚本与日志
+## 回滚限制
 
-四云提供统一的可选初始化入口，默认不使用。AWS支持Linux Shell/cloud-init及Windows PowerShell；Azure只开放Linux Shell/cloud-init，Windows customData不保证自动执行，本候选不开放；DigitalOcean支持Shell/cloud-init；Linode支持兼容镜像/地区的Metadata和现有StackScripts，二者互斥。StackScripts可选择、搜索和填写动态UDF；私人权限须由当前Linode账号确认。
+**beta.4 不认识 beta.5 的云 API 代理设置。保留 beta.4 镜像不等于已验证 beta.5 数据可无损回滚。** beta.4 可能使用旧版出口行为，不能假定仍经 beta.5 代理。
 
-主要在首次部署执行，不代表每次重启自动执行。AWS Windows需要兼容EC2Launch/EC2Config；未知镜像代理须自行核实。创建或开机成功不是执行成功；Narbe显示“初始化脚本已提交，实际执行结果请登录服务器检查。” Linux可检查 `/var/log/cloud-init.log`、`/var/log/cloud-init-output.log`，Azure可补查 `/var/log/waagent.log`；AWS EC2Launch v2可检查 `C:\ProgramData\Amazon\EC2Launch\log\agent.log`，其他版本路径以代理文档为准。StackScript日志依脚本自身配置。
+本轮验证的是 beta.4→beta.5，不是升级后数据库的反向兼容。必要回滚时先停止 beta.5 并另存升级后数据，依据完整的**升级前 beta.4 备份**恢复到隔离 Volume 核实，再由操作者决定切换原项目。只还原旧镜像不保证兼容；不要覆盖或删除唯一数据库、master.key，不能在有未核实云写时自动回滚或重试。
 
-脚本通常拥有root/系统初始化权限。不要硬编码Token、私钥或云密码；云厂商与来宾可能保留User Data，Base64不是加密。四云真实收费创建、来宾执行及私人StackScript IAM尚未完成真实E2E，合同/Mock和Docker通过不能替代。默认新建Linode不绑定云防火墙、全部放行的beta.3行为保持，已有实例/账户默认及OS防火墙不会自动变更。
+禁止 `docker compose down -v`、删除正式 Volume、全局 prune、丢弃／替换唯一 master.key。缺少原 key 不能解密凭据。安装器不执行云创建、重装、删除或资金操作。
 
-## Linode防火墙空集合修复
+## 来源与发行证据
 
-本版修复无设备绑定时devices=null引发的前端异常，合法空devices/items/inbound/outbound显示为0绑定或空规则；缺失规则方向、畸形身份/策略/状态和绑定实体明确拒绝，不会默认为全部放行。显示层归一化保留原始Snapshot、确认及共享绑定影响范围；多绑定防火墙仍禁止直接删除。A专项正式PASS不等于已执行真实Linode防火墙写E2E；不会自动修改Owner既有防火墙、账户默认或服务器绑定。
+正式安装包名称 `narbe-v0.1.0-beta.5-install.tar.gz`，附件包括 `SHA256SUMS` 和 `release-evidence.json`。镜像为 `ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.5@sha256:实际发行digest`，不能使用占位符安装。
+
+包内 `release.json` 与外部证据记录应用审核 SHA、已审交付证据 SHA、发行审核 SHA、实际源码 SHA、Index／两架构 Manifest Digest、Actions URL 及来源门禁分类。发行审核后仅允许 release/README.md、release/NOTES.md 普通文案后补；未审核执行差异失败关闭。实际安装可用性以完成正式复审后的工作流、公开镜像和 Release 附件验收为准。

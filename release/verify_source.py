@@ -6,16 +6,31 @@ import re
 import subprocess
 from pathlib import Path
 
-APPROVED_APPLICATION = 'ebc933f2842be343ffcb6eefd240cdab54ef1b4d'
-VERSION = 'v0.1.0-beta.4'
+APPROVED_APPLICATION = '182e57759494c6fbcf6e3291d8259b524a9ea49a'
+APPROVED_EVIDENCE = '800c5443cb5fb913e30fe71467642c6fdfa87b00'
+VERSION = 'v0.1.0-beta.5'
+APP_EVIDENCE_FILES = frozenset({
+    'docs/BETA5_DELIVERY.md', 'docs/BETA5_SOURCES.md', 'docs/BETA5_EVIDENCE.json',
+})
 # Exact paths, not directories/globs. These changes need separate formal review.
 RELEASE_FILES = frozenset({
     '.github/workflows/release.yml', '.github/workflows/ci.yml',
     'release/VERSION', 'release/publish.sh', 'release/bundle.py',
     'release/test_bundle.py', 'release/verify_source.py', 'release/test_verify_source.py',
-    'release/README.md', 'release/NOTES.md', 'docs/BETA4_RELEASE_REVIEW.md',
+    'release/README.md', 'release/NOTES.md', 'docs/BETA5_RELEASE_REVIEW.md',
 })
 POST_REVIEW_TEXT = frozenset({'release/README.md', 'release/NOTES.md'})
+
+
+def evidence_files(sha):
+    for path in APP_EVIDENCE_FILES:
+        if not git('ls-tree', sha, '--', path).startswith('100644 blob '):
+            raise ValueError('Evidence must retain its regular file type/mode: ' + path)
+        text = subprocess.check_output(['git', 'show', sha + ':' + path]).decode('utf-8')
+        if any(ord(c) < 32 and c not in '\t\r\n' for c in text):
+            raise ValueError('Evidence must remain ordinary UTF-8 text: ' + path)
+        if path.endswith('.json'):
+            json.loads(text)
 
 
 def release_files(sha):
@@ -58,20 +73,27 @@ def changed(base, head):
 
 def verify(app, release, head):
     app, release, head = commit(app), commit(release), commit(head)
+    evidence = commit(APPROVED_EVIDENCE)
     if app != APPROVED_APPLICATION:
-        raise ValueError('Application SHA is not the formally approved beta.4 baseline')
-    ancestor(app, release)
+        raise ValueError('Application SHA is not the formally approved beta.5 baseline')
+    ancestor(app, evidence)
+    ancestor(evidence, release)
     ancestor(release, head)
-    unapproved = changed(app, release) - RELEASE_FILES
+    unapproved = changed(app, evidence) - APP_EVIDENCE_FILES
+    if unapproved:
+        raise ValueError('Unapproved delivery evidence changes: ' + ', '.join(sorted(unapproved)))
+    unapproved = changed(evidence, release) - RELEASE_FILES
     if unapproved:
         raise ValueError('Unapproved application or non-allowlisted changes: ' + ', '.join(sorted(unapproved)))
     unapproved = changed(release, head) - POST_REVIEW_TEXT
     if unapproved:
         raise ValueError('Unreviewed executable or non-allowlisted changes: ' + ', '.join(sorted(unapproved)))
+    for sha in {evidence, release, head}:
+        evidence_files(sha)
     for sha in {release, head}:
         release_files(sha)
         if git('show', sha + ':release/VERSION') != VERSION:
-            raise ValueError('Release version does not match beta.4')
+            raise ValueError('Release version does not match beta.5')
     if git('rev-parse', 'HEAD') != head:
         raise ValueError('Checked-out HEAD differs from the release commit')
     if subprocess.run(['git', 'diff', '--quiet', 'HEAD', '--']).returncode:
@@ -90,7 +112,10 @@ def verify(app, release, head):
         }:
             raise ValueError('Untracked executable/build input: ' + path)
     return {'applicationReviewedSha': app, 'releaseReviewedSha': release,
+            'deliveryEvidenceSha': evidence,
             'sourceSha': head, 'version': VERSION,
+            'applicationEvidenceChanges': sorted(changed(app, evidence)),
+            'releaseConfigurationChanges': sorted(changed(evidence, release)),
             'postReviewTextChanges': sorted(changed(release, head))}
 
 

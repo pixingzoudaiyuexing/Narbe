@@ -2,12 +2,12 @@
 set -euo pipefail
 version=$(cat release/VERSION)
 image=ghcr.io/pixingzoudaiyuexing/narbe
-[[ "$version" = v0.1.0-beta.4 ]]
+[[ "$version" = v0.1.0-beta.5 ]]
 [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
-[[ "$APP_REVIEWED_SHA" = ebc933f2842be343ffcb6eefd240cdab54ef1b4d ]]
+[[ "$APP_REVIEWED_SHA" = 182e57759494c6fbcf6e3291d8259b524a9ea49a ]]
 [[ "$RELEASE_REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]]
 # This verifier was extracted from the independently reviewed commit, not HEAD.
-python3 "$RUNNER_TEMP/narbe-reviewed-source.py" --application "$APP_REVIEWED_SHA" --release "$RELEASE_REVIEWED_SHA" --head "$GITHUB_SHA"
+python3 "$RUNNER_TEMP/narbe-reviewed-source.py" --application "$APP_REVIEWED_SHA" --release "$RELEASE_REVIEWED_SHA" --head "$GITHUB_SHA" --output "$RUNNER_TEMP/narbe-source-gate.json"
 umask 077
 export DOCKER_CONFIG="$RUNNER_TEMP/narbe-publish-auth"
 mkdir -p "$DOCKER_CONFIG"
@@ -44,7 +44,8 @@ from pathlib import Path
 record=json.loads(Path('.local/release-output/registry.json').read_text())
 platforms={(m['platform']['os'],m['platform']['architecture']) for m in record['manifest']['manifests']}
 assert platforms=={('linux','amd64'),('linux','arm64')},platforms
-record.update(version=Path('release/VERSION').read_text().strip(),image='ghcr.io/pixingzoudaiyuexing/narbe',sourceSha=os.environ['GITHUB_SHA'],applicationReviewedSha=os.environ['APP_REVIEWED_SHA'],releaseReviewedSha=os.environ['RELEASE_REVIEWED_SHA'],workflowUrl='https://github.com/'+os.environ['GITHUB_REPOSITORY']+'/actions/runs/'+os.environ['GITHUB_RUN_ID'])
+source_gate=json.loads(Path(os.environ['RUNNER_TEMP'],'narbe-source-gate.json').read_text())
+record.update(deliveryEvidenceSha=source_gate['deliveryEvidenceSha'],sourceGate=source_gate,version=Path('release/VERSION').read_text().strip(),image='ghcr.io/pixingzoudaiyuexing/narbe',sourceSha=os.environ['GITHUB_SHA'],applicationReviewedSha=os.environ['APP_REVIEWED_SHA'],releaseReviewedSha=os.environ['RELEASE_REVIEWED_SHA'],workflowUrl='https://github.com/'+os.environ['GITHUB_REPOSITORY']+'/actions/runs/'+os.environ['GITHUB_RUN_ID'])
 Path('.local/release-output/release.json').write_text(json.dumps(record,ensure_ascii=False,indent=2)+'\n')
 print('Published immutable index digest:',record['digest'])
 PY

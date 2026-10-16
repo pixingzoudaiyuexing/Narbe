@@ -13,9 +13,13 @@ parser.add_argument('output',type=Path)
 args=parser.parse_args()
 record=json.loads(args.record.read_text())
 version=Path('release/VERSION').read_text().strip()
-assert record['version']==version and version=='v0.1.0-beta.4' and re.fullmatch(r'sha256:[0-9a-f]{64}',record['digest'])
+assert record['version']==version and version=='v0.1.0-beta.5' and re.fullmatch(r'sha256:[0-9a-f]{64}',record['digest'])
 assert record['image']=='ghcr.io/pixingzoudaiyuexing/narbe'
-assert record['applicationReviewedSha']=='ebc933f2842be343ffcb6eefd240cdab54ef1b4d'
+assert record['applicationReviewedSha']=='182e57759494c6fbcf6e3291d8259b524a9ea49a'
+assert record['deliveryEvidenceSha']=='800c5443cb5fb913e30fe71467642c6fdfa87b00'
+assert all(record['sourceGate'][key]==record[key] for key in ('version','sourceSha','applicationReviewedSha','releaseReviewedSha','deliveryEvidenceSha'))
+assert record['sourceGate']['applicationEvidenceChanges']==['docs/BETA5_DELIVERY.md','docs/BETA5_EVIDENCE.json','docs/BETA5_SOURCES.md']
+assert set(record['sourceGate']['postReviewTextChanges']) <= {'release/README.md','release/NOTES.md'}
 assert re.fullmatch(r'[0-9a-f]{40}',record['releaseReviewedSha']) and re.fullmatch(r'[0-9a-f]{40}',record['sourceSha'])
 assert re.fullmatch(r'https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/[0-9]+',record['workflowUrl'])
 manifests=record['manifest']['manifests']

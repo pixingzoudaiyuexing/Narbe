@@ -30,16 +30,22 @@ class SourceGate(unittest.TestCase):
                      '.github/workflows/release.yml', 'release/publish.sh', 'release/README.md', 'release/NOTES.md']):
             self.write(name, 'reviewed original\n')
         Path('release/publish.sh').chmod(0o755)
-        self.write('release/VERSION', 'v0.1.0-beta.3\n')
+        self.write('release/VERSION', 'v0.1.0-beta.4\n')
         self.app = self.save()
         self.original_app = gate.APPROVED_APPLICATION
         # Only fixtures use a generated approved anchor, never a repo variable.
         gate.APPROVED_APPLICATION = self.app
         self.addCleanup(setattr, gate, 'APPROVED_APPLICATION', self.original_app)
+        self.original_evidence = gate.APPROVED_EVIDENCE
+        for path in gate.APP_EVIDENCE_FILES:
+            self.write(path, '{"approved": true}\n' if path.endswith('.json') else 'Approved beta.5 delivery evidence\n')
+        self.evidence = self.save()
+        gate.APPROVED_EVIDENCE = self.evidence
+        self.addCleanup(setattr, gate, 'APPROVED_EVIDENCE', self.original_evidence)
         self.write('release/VERSION', gate.VERSION + '\n')
-        self.write('release/publish.sh', 'reviewed beta4 publish\n')
+        self.write('release/publish.sh', 'reviewed beta5 publish\n')
         self.write('.github/workflows/release.yml', 'reviewed dual gate workflow\n')
-        self.write('release/verify_source.py', VERIFIER.replace(self.original_app, self.app))
+        self.write('release/verify_source.py', VERIFIER.replace(self.original_app, self.app).replace(self.original_evidence, self.evidence))
         self.release = self.save()
 
     def cleanup(self):
@@ -64,15 +70,83 @@ class SourceGate(unittest.TestCase):
 
     def test_approved_release_and_only_explicit_text_updates_pass(self):
         self.assertEqual(self.check()['releaseReviewedSha'], self.release)
+        self.assertEqual(self.check()['deliveryEvidenceSha'], self.evidence)
+        self.assertEqual(self.check()['applicationEvidenceChanges'], sorted(gate.APP_EVIDENCE_FILES))
         self.write('release/NOTES.md', 'Final Chinese release text\n')
         self.write('release/README.md', 'Final installation instructions\n')
         head = self.save()
         self.assertEqual(self.check(head)['postReviewTextChanges'], ['release/NOTES.md', 'release/README.md'])
 
+    def test_evidence_allowlist_is_exact_and_frozen_after_approved_delivery(self):
+        self.assertEqual(gate.APP_EVIDENCE_FILES, frozenset({
+            'docs/BETA5_DELIVERY.md', 'docs/BETA5_SOURCES.md', 'docs/BETA5_EVIDENCE.json'}))
+        for path in [*gate.APP_EVIDENCE_FILES, 'docs/other.md', 'docs/BETA5_EVIDENCE.json.py']:
+            with self.subTest(path=path):
+                self.run_git('checkout', '-q', '--detach', self.release)
+                self.write(path, 'unapproved release-stage evidence change\n')
+                head = self.save()
+                with self.assertRaisesRegex(ValueError, 'Unapproved application'):
+                    self.check(head, release=head)
+
+    def test_evidence_anchor_cannot_contain_unrelated_code_or_lookalike_paths(self):
+        for path in ['docs/other.md', 'docs/BETA5_DELIVERY.md.sh', 'internal/cloud/linode.go']:
+            with self.subTest(path=path):
+                self.run_git('checkout', '-q', '--detach', self.evidence)
+                self.write(path, 'unreviewed injection\n')
+                bad = self.save()
+                previous = gate.APPROVED_EVIDENCE
+                try:
+                    gate.APPROVED_EVIDENCE = bad
+                    with self.assertRaisesRegex(ValueError, 'Unapproved delivery evidence'):
+                        self.check(head=bad, release=bad)
+                finally:
+                    gate.APPROVED_EVIDENCE = previous
+
+    def test_evidence_type_mode_text_and_json_bypasses_are_rejected(self):
+        for path in sorted(gate.APP_EVIDENCE_FILES):
+            for kind in ['symlink', 'executable', 'delete', 'directory', 'binary', 'invalid-utf8', 'invalid-json']:
+                if kind == 'invalid-json' and not path.endswith('.json'):
+                    continue
+                with self.subTest(path=path, kind=kind):
+                    self.run_git('checkout', '-q', '--detach', self.evidence)
+                    p = Path(path)
+                    if kind in ['symlink', 'delete', 'directory']: p.unlink()
+                    if kind == 'symlink': p.symlink_to('../release/publish.sh')
+                    elif kind == 'executable': p.chmod(0o755)
+                    elif kind == 'directory': p.mkdir(); (p/'payload').write_text('injection')
+                    elif kind == 'binary': p.write_bytes(b'notes\x00payload')
+                    elif kind == 'invalid-utf8': p.write_bytes(b'\xff\xfe')
+                    elif kind == 'invalid-json': p.write_text('not json')
+                    bad = self.save()
+                    self.write('release/VERSION', gate.VERSION + '\n')
+                    candidate = self.save()
+                    previous = gate.APPROVED_EVIDENCE
+                    try:
+                        gate.APPROVED_EVIDENCE = bad
+                        with self.assertRaises((ValueError, UnicodeError)):
+                            self.check(head=candidate, release=candidate)
+                    finally:
+                        gate.APPROVED_EVIDENCE = previous
+
+    def test_evidence_anchor_must_be_commit_on_both_ancestry_edges(self):
+        previous = gate.APPROVED_EVIDENCE
+        try:
+            for invalid in ['', 'a'*39, 'f'*40, self.run_git('rev-parse', 'HEAD^{tree}')]:
+                gate.APPROVED_EVIDENCE = invalid
+                with self.assertRaises((ValueError, subprocess.CalledProcessError)):
+                    self.check()
+            self.run_git('checkout', '-q', '--detach', self.app)
+            self.write('docs/BETA5_DELIVERY.md', 'sibling delivery\n')
+            gate.APPROVED_EVIDENCE = self.save()
+            with self.assertRaisesRegex(ValueError, 'ancestor'):
+                self.check(head=self.release)
+        finally:
+            gate.APPROVED_EVIDENCE = previous
+
     def test_application_changes_cannot_hide_in_release_review(self):
         for name in ['cmd/narbe/main.go', 'internal/cloud/linode.go', 'go.mod', 'Dockerfile',
                      'scripts/test_runtime.py', 'release/install.sh', 'release/registry.py',
-                     'docs/new-executable.sh', '.github/workflows/new.yml']:
+                     'docs/new-executable.sh', 'go.sum', '.dockerignore', 'package-lock.json', 'internal/web/assets/injected.js', '.github/workflows/new.yml']:
             with self.subTest(path=name):
                 self.run_git('checkout', '-q', '--detach', self.release)
                 self.write(name, 'unreviewed mutation\n')
@@ -82,7 +156,7 @@ class SourceGate(unittest.TestCase):
 
     def test_executable_workflow_or_nonwhitelisted_changes_after_release_review_fail(self):
         for name in ['release/publish.sh', 'release/verify_source.py', 'release/VERSION',
-                     '.github/workflows/release.yml', '.github/workflows/ci.yml', 'docs/BETA4_RELEASE_REVIEW.md']:
+                     '.github/workflows/release.yml', '.github/workflows/ci.yml', 'docs/BETA5_RELEASE_REVIEW.md', *gate.APP_EVIDENCE_FILES]:
             with self.subTest(path=name):
                 self.run_git('checkout', '-q', '--detach', self.release)
                 self.write(name, 'unreviewed post-review mutation\n')
@@ -183,7 +257,7 @@ class SourceGate(unittest.TestCase):
             self.check()
         self.run_git('checkout', '--', 'internal/cloud/linode.go')
         Path('.git/info/exclude').write_text('*.log\n')
-        for name in ['internal/new.go','internal/注入.go','internal/web/assets/ignored.log']:
+        for name in ['internal/new.go','internal/注入.go','internal/web/assets/ignored.log','scripts/ignored.log','release/ignored.log','.github/workflows/ignored.log']:
             self.write(name, 'untracked injection\n')
             with self.assertRaisesRegex(ValueError, 'Untracked'):
                 self.check()
@@ -191,26 +265,31 @@ class SourceGate(unittest.TestCase):
 
 
 class WorkflowContract(unittest.TestCase):
-    def test_publish_missing_beta4_review_values_stops_before_any_registry_command(self):
+    def test_publish_missing_beta5_review_values_stops_before_any_registry_command(self):
         with tempfile.TemporaryDirectory() as tmp:
             marker=Path(tmp)/'registry-called'
             docker=Path(tmp)/'docker';docker.write_text('#!/bin/sh\ntouch "'+str(marker)+'"\nexit 0\n');docker.chmod(0o755)
-            for overrides in [{},{'APP_REVIEWED_SHA':gate.APPROVED_APPLICATION},{'APP_REVIEWED_SHA':gate.APPROVED_APPLICATION,'RELEASE_REVIEWED_SHA':''}]:
-                env={'PATH':tmp+os.pathsep+os.environ['PATH'],'GITHUB_SHA':gate.APPROVED_APPLICATION,'RUNNER_TEMP':tmp,'NARBE_BETA3_APP_REVIEWED_SHA':'4f1c9cc2a7c8e099ab3c375548c48e691d87c72d','NARBE_BETA3_RELEASE_REVIEWED_SHA':'e1955797433a1516ce1a850d7d2e707572af249e',**overrides}
+            for overrides in [{},{'APP_REVIEWED_SHA':gate.APPROVED_APPLICATION},
+                              {'APP_REVIEWED_SHA':gate.APPROVED_APPLICATION,'RELEASE_REVIEWED_SHA':''},
+                              {'RELEASE_REVIEWED_SHA':'f'*40},
+                              {'APP_REVIEWED_SHA':'ebc933f2842be343ffcb6eefd240cdab54ef1b4d','RELEASE_REVIEWED_SHA':'5432c681bc66ec5d8f46914ad5cbc7dbd9fd3a04'}]:
+                env={'PATH':tmp+os.pathsep+os.environ['PATH'],'GITHUB_SHA':gate.APPROVED_APPLICATION,'RUNNER_TEMP':tmp,'NARBE_BETA4_APP_REVIEWED_SHA':'ebc933f2842be343ffcb6eefd240cdab54ef1b4d','NARBE_BETA4_RELEASE_REVIEWED_SHA':'5432c681bc66ec5d8f46914ad5cbc7dbd9fd3a04',**overrides}
                 result=subprocess.run(['bash',str(ROOT/'release/publish.sh')],cwd=ROOT,env=env,capture_output=True)
                 self.assertNotEqual(result.returncode,0)
                 self.assertFalse(marker.exists())
 
     def test_application_anchor_is_the_exact_formally_approved_head(self):
-        self.assertEqual(gate.APPROVED_APPLICATION,'ebc933f2842be343ffcb6eefd240cdab54ef1b4d')
+        self.assertEqual(gate.APPROVED_APPLICATION,'182e57759494c6fbcf6e3291d8259b524a9ea49a')
+        self.assertEqual(gate.APPROVED_EVIDENCE,'800c5443cb5fb913e30fe71467642c6fdfa87b00')
 
     def test_old_review_variable_cannot_enable_new_release(self):
         self.assertNotIn('NARBE_BETA2_REVIEWED_SHA', WORKFLOW)
         self.assertNotIn('NARBE_BETA3_', WORKFLOW)
-        self.assertIn('vars.NARBE_BETA4_APP_REVIEWED_SHA', WORKFLOW)
-        self.assertIn('vars.NARBE_BETA4_RELEASE_REVIEWED_SHA', WORKFLOW)
-        self.assertIn('narbe-v0.1.0-beta.4-release', WORKFLOW)
-        self.assertIn("vars.NARBE_BETA4_APP_REVIEWED_SHA != '' && vars.NARBE_BETA4_RELEASE_REVIEWED_SHA != ''",WORKFLOW)
+        self.assertNotIn('NARBE_BETA4_', WORKFLOW)
+        self.assertIn('vars.NARBE_BETA5_APP_REVIEWED_SHA', WORKFLOW)
+        self.assertIn('vars.NARBE_BETA5_RELEASE_REVIEWED_SHA', WORKFLOW)
+        self.assertIn('narbe-v0.1.0-beta.5-release', WORKFLOW)
+        self.assertIn("vars.NARBE_BETA5_APP_REVIEWED_SHA != '' && vars.NARBE_BETA5_RELEASE_REVIEWED_SHA != ''",WORKFLOW)
 
     def test_package_write_job_waits_for_unprivileged_gate_and_both_builds(self):
         gate_job=WORKFLOW.split('  source-gate:',1)[1].split('  build:',1)[0]
@@ -235,7 +314,21 @@ class WorkflowContract(unittest.TestCase):
         self.assertIn('amd64:x86_64|arm64:aarch64',WORKFLOW)
         self.assertIn('release/test_install.py --image "$image"',WORKFLOW)
         self.assertIn('scripts/test_upgrade.py --old-image',WORKFLOW)
-        self.assertIn('v0.1.0-beta.3@sha256:1448084e',WORKFLOW)
+        self.assertIn('v0.1.0-beta.4@sha256:1d1f45b4',WORKFLOW)
+        self.assertNotIn('v0.1.0-beta.3@',WORKFLOW)
+
+    def test_failed_release_pipeline_cannot_create_git_tag_or_github_release(self):
+        self.assertNotIn('contents: write', WORKFLOW)
+        self.assertNotRegex(WORKFLOW + PUBLISH, r'\b(?:gh\s+release|git\s+tag|git\s+push)\b')
+        self.assertIn('needs: verify-published', WORKFLOW)
+        self.assertIn('python3 release/bundle.py', WORKFLOW)
+
+    def test_all_actions_are_sha_pinned_and_release_cannot_run_on_pull_request(self):
+        import re
+        for action in re.findall(r'uses:\s+(\S+)', WORKFLOW):
+            self.assertRegex(action, r'^[\w/-]+@[a-f0-9]{40}$')
+        self.assertNotIn('pull_request', WORKFLOW)
+        self.assertNotIn('workflow_dispatch', WORKFLOW)
 
 
 if __name__ == '__main__':
