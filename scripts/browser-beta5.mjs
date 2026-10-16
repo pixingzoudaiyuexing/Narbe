@@ -56,7 +56,23 @@ try {
   assert.equal(await f.locator("[name=mode]").inputValue(), "direct");
   assert.ok(await page.locator("[data-proxy-fields]").isHidden());
   await page.locator("[data-local-test]").click();
+  const directReply = page.waitForResponse(
+    (r) =>
+      r.url().endsWith("/api/network/test") &&
+      r.request().postDataJSON()?.kind === "direct",
+  );
   await page.locator("[data-direct-test]").click();
+  if (live) {
+    const directResult = await (await directReply).json();
+    assert.equal(directResult.mode, "direct");
+    assert.equal(directResult.status, "success");
+    assert.ok(
+      !("proxyAuthentication" in directResult),
+      "direct request must not claim proxy authentication",
+    );
+  } else {
+    await directReply;
+  }
   await page.waitForFunction(
     () =>
       !document

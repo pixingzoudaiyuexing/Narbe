@@ -330,7 +330,9 @@ func (a *App) networkTest(w http.ResponseWriter, r *http.Request) {
 			if res.StatusCode == 200 && err == nil && pe == nil && addr.IsGlobalUnicast() && !addr.IsPrivate() {
 				out["status"] = "success"
 				out["ip"] = addr.String()
-				out["proxyAuthentication"] = "本次请求已通过代理（如配置认证）"
+				if mode == "proxy" {
+					out["proxyAuthentication"] = "本次请求已通过代理（如配置认证）"
+				}
 			} else if res.StatusCode == 407 {
 				out["message"] = "代理认证失败"
 			} else {
