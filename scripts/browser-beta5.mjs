@@ -30,13 +30,15 @@ if (!live)
 const dir = process.env.NARBE_SCREENSHOT_DIR || "test-results";
 fs.mkdirSync(dir, { recursive: true });
 async function shot(name) {
+  const previousViewport = page.viewportSize();
+  await page.setViewportSize({ width: 1440, height: 1080 });
   const surface = name.startsWith("actual-egress")
     ? page.locator(".network-diagnostics")
     : page;
   await surface.screenshot({ path: `${dir}/beta5-${name}-desktop.png` });
   await page.setViewportSize({ width: 390, height: 844 });
   await surface.screenshot({ path: `${dir}/beta5-${name}-mobile.png` });
-  await page.setViewportSize({ width: 1440, height: 1080 });
+  await page.setViewportSize(previousViewport);
 }
 const settings = async () => {
   await page.locator("[data-nav=settings]").click();
@@ -137,6 +139,7 @@ try {
     await page
       .getByText("代理身份变化时必须重新输入或明确清除密码", { exact: false })
       .waitFor();
+    await page.setViewportSize({ width: 390, height: 844 });
     await f.locator("[name=mode]").selectOption("direct");
     const directSaved = page.waitForResponse(
       (r) => r.url().endsWith("/api/network") && r.request().method() === "PUT",
@@ -144,9 +147,12 @@ try {
     await f.locator("button[type=submit]").click();
     assert.equal((await directSaved).status(), 200);
     for (const mode of ["none", "shell", "cloud-config", "stackscript"]) {
+      await page.setViewportSize({ width: 1440, height: 1080 });
       await page.goto(url);
       await page.locator("[data-details]").first().click();
       await page.locator("[data-advanced=rebuild]").click();
+      if (mode === "cloud-config")
+        await page.setViewportSize({ width: 390, height: 844 });
       const form = page.locator(".advanced-form");
       await form
         .locator("[name=newImage] option[value=im]")
@@ -211,6 +217,7 @@ try {
       realCloudWrites: 0,
       liveIPDetection: live,
       proxyPasswordNotEchoed: true,
+      mobileSaveAndRebuild: !live,
     }),
   );
 } catch (e) {

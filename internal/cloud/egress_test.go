@@ -21,6 +21,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	sdk "github.com/aws/aws-sdk-go-v2/aws"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 )
 
 func fixtureCert(t *testing.T) (tls.Certificate, *x509.CertPool) {
@@ -54,6 +57,27 @@ func TestEgressProtocolsAuthTLSAndFourCloudWire(t *testing.T) {
 					}
 					switch r.Host {
 					case "ec2.us-east-1.amazonaws.com":
+						// Verify at the HTTPS destination, after the proxy tunnel.
+						// The existing signer test alone only sees a pre-transport request.
+						raw, _ := io.ReadAll(r.Body)
+						signed := r.Clone(r.Context())
+						signed.URL.Scheme, signed.URL.Host = "https", r.Host
+						signed.Header = make(http.Header)
+						signedNames := strings.Split(strings.Split(r.Header.Get("Authorization"), "SignedHeaders=")[1], ",")[0]
+						for _, name := range strings.Split(signedNames, ";") {
+							if name != "host" {
+								signed.Header[http.CanonicalHeaderKey(name)] = append([]string(nil), r.Header.Values(name)...)
+							}
+						}
+						stamp, err := time.Parse("20060102T150405Z", r.Header.Get("X-Amz-Date"))
+						if err != nil {
+							t.Error(err)
+						}
+						err = v4.NewSigner().SignHTTP(context.Background(), sdk.Credentials{AccessKeyID: "fixture", SecretAccessKey: "fixture"}, signed, digest(raw), "ec2", "us-east-1", stamp)
+						if err != nil || signed.Header.Get("Authorization") != r.Header.Get("Authorization") {
+							t.Error("AWS signature invalid after proxy", err)
+						}
+						r.Body = io.NopCloser(strings.NewReader(string(raw)))
 						r.ParseForm()
 						if r.Form.Get("Action") != "DescribeRegions" || !strings.Contains(r.Header.Get("Authorization"), "AWS4-HMAC-SHA256") || r.URL.Path != "/" {
 							t.Error("AWS host/body signature changed")
