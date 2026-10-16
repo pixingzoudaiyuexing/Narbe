@@ -1,0 +1,174 @@
+{
+  "scope": "beta.4 candidate; not released; Formal Independent Review REQUIRED / PENDING",
+  "applicationCommit": "3ae454971eb670ba19fb2218347dc0db18aedab0",
+  "previousPublishedSource": "b8b472d0f05ed3a56a629769a5dc6f1b1308a8ac",
+  "previousPublishedImage": "ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.3@sha256:1448084e11d2dbdb1379628d909a29df401b999272470985e49da2e6291f842f",
+  "localEvidence": {
+    "race-frozen.txt": {
+      "sha256": "6168475fb2b3c650f9f65fd1244660529fc7d7c9fe6273729c4ffd5b24cb4246",
+      "result": "PASS"
+    },
+    "vet-frozen.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result": "PASS"
+    },
+    "browser-frozen.txt": {
+      "sha256": "2bea9f04aff9da637af3768bfffd2a86d0a3f4814db63242c6a86983bbb9543d",
+      "result": "PASS"
+    },
+    "format-frozen.txt": {
+      "sha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20",
+      "result": "PASS"
+    },
+    "format-frozen-tests.txt": {
+      "sha256": "ed141f7f906de2be280f054523f10b79268ed16df76259ead6ffec1ed0fc44b3",
+      "result": "PASS"
+    },
+    "vuln.txt": {
+      "sha256": "b5ae54ddcfa4cb39e85f84ad2d9e43556bd817c480eaab2a71bab63bfc29353b",
+      "result": "PASS"
+    },
+    "build-script-tests.txt": {
+      "sha256": "6ceb0f6b94a6b04cff031ae0502a256bd5be6b167ade4ba54c68af1940c2eccb",
+      "result": "PASS"
+    },
+    "actionlint.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result": "PASS"
+    },
+    "mutation-byte-budget-red.txt": {
+      "sha256": "ef894d0bb18729d71993986e8d31883fca7183ff43d750e3cf85bba247fc37d2",
+      "result": "expected failure reproduced"
+    },
+    "mutation-double-base64-red.txt": {
+      "sha256": "ad587caffc1fa04c8bede230083ad2a29d7dfc44c7a410ecf9db9345ebcdf71d",
+      "result": "expected failure reproduced"
+    },
+    "mutation-do-plain-red.txt": {
+      "sha256": "18fc7ab5151d8ef94ce9dfe3e51cd961538ded8e6c0c0efb9ddb951302d1d2e0",
+      "result": "expected failure reproduced"
+    },
+    "mutation-stack-revision-red.txt": {
+      "sha256": "85726e0f6040fd339f92f9fda4ffdebdc53b9f6ce75a033daa530fa9c2dee4e0",
+      "result": "expected failure reproduced"
+    },
+    "mutation-stack-unknown-params-red.txt": {
+      "sha256": "f286aaf77ada25d8b1e547f96b743d22e5f3c69e42a7ece06ffd5ecadca34880",
+      "result": "expected failure reproduced"
+    },
+    "mutation-private-job-disclosure-red.txt": {
+      "sha256": "1b5ae2c6b0dd31f31a2a3d307bc90d4e74117a28e44369a684652f5d442b25a7",
+      "result": "expected failure reproduced"
+    },
+    "mutation-green.txt": {
+      "sha256": "cf161457d04712b2bc53459274cade53d4fafbaa4a7e72ab7cd71ab6996aedcc",
+      "result": "PASS"
+    },
+    "udf-draft-red.txt": {
+      "sha256": "1c59ca08f2817526a7c5ab892a35c747c6b9a5b299131d1814ad9e407b2b2f2e",
+      "result": "expected failure reproduced"
+    },
+    "stack-clear-red.txt": {
+      "sha256": "d04bd06e612148f2675e3e3e7d518cd010a2c8a88490906c990af721a827558b",
+      "result": "expected failure reproduced"
+    },
+    "runtime.txt": {
+      "sha256": "79bae7130c2ec97fddc24e2da000fa33b0ad6f38b28ab538c56b01b0ee79aa6e",
+      "result": "PASS"
+    },
+    "upgrade.txt": {
+      "sha256": "36c62fa98a40ddf9a4be171eebd44b0f6d942d1ef78202b7b9e6eb2c894a0b65",
+      "result": "PASS"
+    },
+    "binary-vuln.txt": {
+      "sha256": "b5ae54ddcfa4cb39e85f84ad2d9e43556bd817c480eaab2a71bab63bfc29353b",
+      "result": "PASS"
+    },
+    "docker-build.txt": {
+      "sha256": "c645c5691dd881d22b7c16a3f4cd08265864882650b210cfd8a3e23666434def",
+      "result": "PASS"
+    }
+  },
+  "officialReadOnlyEvidence": {
+    "checkedDate": "2026-10-15",
+    "officialSource": "https://github.com/linode/linode-api-openapi/blob/main/openapi.json",
+    "apiVersion": "4.229.1",
+    "sourceSha256": "bb8daa30ee983e393e343cf05cf078fa7b27a9f9a5b12fd97a901116a8dfc792",
+    "metadataUserData": {
+      "description": "Base64-encoded [cloud-config](https://www.linode.com/docs/products/compute/compute-instances/guides/metadata-cloud-config/) data. Consider these points when including `user_data`:\n\n- You can't update an existing Linode to modify this information. You need to either [clone](https://techdocs.akamai.com/linode-api/reference/post-clone-linode-instance) or [rebuild](https://techdocs.akamai.com/linode-api/reference/post-rebuild-linode-instance) an existing Linode and apply new `user_data`.\n\n- You can't include this field when cloning to an existing Linode.\n\n- Unencoded data can't exceed 65535 bytes when encoded.",
+      "example": "I2Nsb3VkLWNvbmZpZwpwYWNrYWdlX3VwZGF0ZTogdHJ1ZQpwYWNrYWdlX3VwZ3JhZGU6IHRydWU=",
+      "format": "byte",
+      "type": "string"
+    },
+    "publicReadEvidence": {
+      "officialEndpoint": "GET https://api.linode.com/v4/linode/stackscripts?page_size=25&page=1",
+      "filter": "is_public=true, label contains Docker",
+      "authentication": "anonymous, public only",
+      "page": 1,
+      "pages": 4,
+      "results": 87,
+      "returned": 25,
+      "hasUDF": true,
+      "cloudWrites": 0,
+      "privateAccountAccess": "NOT VERIFIED"
+    }
+  },
+  "realCloudWrites": 0,
+  "realCloudGuestExecution": "NOT VERIFIED",
+  "ownerDeployment": "NOT TOUCHED",
+  "agy": {
+    "total": 2,
+    "researchScout": 1,
+    "embeddedReviewer": 1,
+    "completed": 0,
+    "failedTimeout": 2,
+    "formalReviewReplacement": false
+  },
+  "ci": [
+    {
+      "databaseId": 38691287199,
+      "url": "https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/38691287199",
+      "event": "push",
+      "headSha": "3ae454971eb670ba19fb2218347dc0db18aedab0",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "databaseId": 38691291801,
+      "url": "https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/38691291801",
+      "event": "pull_request",
+      "headSha": "3ae454971eb670ba19fb2218347dc0db18aedab0",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "docker": {
+    "nativeLocalArchitecture": "linux/arm64",
+    "nativeCIArchitecture": "linux/amd64",
+    "image": "narbe/local:current",
+    "imageId": "sha256:b574f5b0796451d0bcf0d72d6928e1659bdedbc7f7c34946dfe6534f01d76c52",
+    "imageInspectSizeBytes": 5511420,
+    "dockerStorageSize": "18.74 MB",
+    "labels": "dev / revision unknown, not a release image; source frozen at applicationCommit",
+    "binary": {
+      "sha256": "5af23ad1b09ad25ac0f0f77086597ae1f04ee278ee25bb8f5b51ff594c36e469",
+      "bytes": 12974956,
+      "govulncheck": "0 reachable vulnerabilities; 1 required-module advisory without call path"
+    },
+    "runtime": "PASS: health/login/restart/replacement/non-root/read-only/log rotation",
+    "upgrade": "PASS: beta.3 digest-pinned Compose upgrade/recreation; same volume/master.key/password/settings/nonempty encrypted account rows",
+    "cleanup": {
+      "taskBuilderRemoved": true,
+      "buildCacheBytes": 0,
+      "remainingContainers": 0,
+      "remainingVolumes": 0,
+      "removedTaskBuildKitImageApproxMB": 510,
+      "beta1beta2beta3ImagesPreserved": true,
+      "candidatePreserved": true,
+      "otherProjectImagePreserved": true,
+      "globalPrune": false,
+      "dockerImagesTotal": "2.324 GB (includes protected Rust 2.211 GB)",
+      "hostAvailable": "14 GiB at final check"
+    }
+  }
+}
