@@ -60,3 +60,18 @@ Microsoft 官方 `1.26.10-bookworm` 多架构 Index 的实际响应 Digest 为 `
 仍需真实 Linode 在专门授权下核实关机／重置／开机事件形态、IAM、时延、特殊磁盘及外部并发干预；当前不执行这些写。没有服务器锁意味着同机请求可能由厂商拒绝，或者导致事件归属歧义并保持 unknown；这是 Owner 明确选择，不能伪报成功或自动重放。错误清理不保证任意未知编码均可识别，按已知字段与请求敏感值保守隐藏；主密钥和数据库同时泄漏仍可解密。默认可见密码有旁观风险，是 Owner 明确输入偏好，未弱化持久化保护。
 
 最终提交、Draft PR、CI、双架构 Docker、持久化升级及磁盘清理的实际结果由下方最终证据段和 Engineer 报告记录。完成后停止待审，不执行发行；原 beta.5 Release Gate 继续保持原提交，不将本候选混入已审发行链。
+
+## 最终 CI 与交付证据
+
+可执行／完整测试基线：`3216f1e9e5151338427c7ceee5fe0090fdebf1e4`（功能提交 `a5ff9d301eb2e253869e50945aabfe7f75fe2e19`，随后补强 unknown 后同账号新任务实际执行断言）。
+
+- [Push CI](https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/40445402068) 与 [PR CI](https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/40445405627) 均 **completed / success**；verify 24 步、arm64-runtime 12 步全部成功，未用 skipped 充当通过。
+- 原生 AMD64 与原生 ARM64 实际构建、启动、健康、登录、密码与加密代理设置跨重启／容器替换持久化成功。两平台均从固定正式 beta.4 digest 实际拉取到新候选，在独立 disposable Compose Volume 升级，保留同项目／Volume、端口／Origin，逐字节核对 master.key、密码/settings 和非空加密云账号，强制重建后仍能登录。任务密文与最后阶段跨重启另由真实 SQLite 回归证明。
+- ARM64 候选 inspect.Size **13,334,925B**，image ID `sha256:96dcb2a6a8071a6277010a2427bc47819450988c0b7a8d1a959212766a5bef10`，revision 为上述3216f1e；内部标签 task-ux-candidate，不是 beta.5 正式镜像或可公开安装的发行 digest。
+- 本机 Docker daemon 当前未运行，**无法读取当前本机镜像／Volume 总占用**，不把历史2.344GB快照当作当前值；本轮本机镜像构建、容器及 Volume 创建均为0。CI的安装／升级只创建其自身带身份标签的临时资源，finally 定向回收。未启动本机 daemon 或进行全局 prune，原正式镜像／数据未被本任务修改。宿主检查时可用22GiB；约31.8MB本次临时截图已回收，保留10张约1.6MiB正式测试截图与小型日志。
+
+[机器可读证据](TASK_UX_EVIDENCE.json) 记录精确来源、CI Job URL、候选镜像与保护边界。最后只补证据文档和测试截图并 `[skip ci]`，最终待审 HEAD 与3216f1e在应用、测试、脚本、依赖、Dockerfile和Workflow上逐文件相同，不重复全量构建；精确最终 HEAD 由 Engineer 报告给出。
+
+原 PR #1 仍 Open/Draft、HEAD e95e0b7，main 仍 `529de7a980d1e0c182ae59a8b282eb6c91148494`；独立 [Draft PR #2](https://github.com/pixingzoudaiyuexing/Narbe/pull/2) 以原候选分支为 base，只包含本轮后续 Diff。不修改 release/** 或发行 Workflow、未设置任何新发行变量、不推正式镜像、不创建 Tag／Release。旧 beta.5 构建工具链未因本候选自动升级，GO-2026-6809 对旧发行锚点的影响须由上游发行决策另行评估。
+
+agy Specialist Calls：1；Research Scout 0、Root-Cause Challenger 0、Design Challenger 0、Test Designer 0、Embedded Reviewer 1。Embedded Review Calls：1 / 1 completed / 0 failed / 0 re-review。内部 PASS 不等于正式审核，也不授权合并或上线。
