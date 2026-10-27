@@ -38,7 +38,7 @@ type linEvent struct {
 }
 
 func eventAction(action string) string {
-	return map[string]string{"rebuild": "linode_rebuild", "resize": "linode_resize", "clone": "linode_clone", "migrate": "linode_migrate_datacenter", "password-reset": "password_reset"}[action]
+	return map[string]string{"rebuild": "linode_rebuild", "resize": "linode_resize", "clone": "linode_clone", "migrate": "linode_migrate_datacenter", "password-reset": "password_reset", "stop": "linode_shutdown", "start": "linode_boot"}[action]
 }
 func (l *Linode) events(ctx context.Context, id, action string) ([]linEvent, error) {
 	n, e := strconv.Atoi(id)
@@ -90,9 +90,6 @@ func (l *Linode) eventBaseline(ctx context.Context, id, action string) (int, err
 		if v.ID > after {
 			after = v.ID
 		}
-		if v.Status == "scheduled" || v.Status == "started" || v.Status == "in_progress" {
-			return 0, errors.New("该服务器有云端待执行任务，请在控制台核实后重试")
-		}
 	}
 	return after, nil
 }
@@ -100,6 +97,9 @@ func (l *Linode) pollAdvanced(ctx context.Context, op Operation) (bool, error) {
 	check := op.Linode
 	if check == nil {
 		return false, errors.New("缺少Linode操作核实信息")
+	}
+	if check.Action == "password-reset" && check.OriginalState != "" {
+		return l.pollPasswordReset(ctx, op)
 	}
 	if check.Action == "create" {
 		var i linInstance
@@ -200,7 +200,7 @@ func (l *Linode) eventFinished(ctx context.Context, id, action string, after, di
 		if ev.ID <= after || ev.Action != eventAction(action) {
 			continue
 		}
-		if ev.Entity == nil || fmt.Sprint(ev.Entity.ID) != id {
+		if ev.Entity == nil || ev.Entity.Type != "linode" || fmt.Sprint(ev.Entity.ID) != id {
 			continue
 		}
 		if diskID > 0 {
@@ -229,4 +229,32 @@ func (l *Linode) eventFinished(ctx context.Context, id, action string, after, di
 		return false, ErrOperationFailed
 	}
 	return ev.Status == "finished", nil
+}
+
+// pollPasswordReset reconciles already dispatched steps only. In particular a
+// confirmed shutdown/reset never causes Poll to issue reset/boot after restart.
+func (l *Linode) pollPasswordReset(ctx context.Context, op Operation) (bool, error) {
+	c := op.Linode
+	if !c.PasswordResetSent {
+		return false, &Error{Code: c.Stage + "；密码重置尚未派发，请人工核实；只读核实不会继续云写", Uncertain: true}
+	}
+	done, e := l.eventFinished(ctx, op.ResourceID, "password-reset", c.ResetEventAfter, c.DiskID)
+	if e != nil || !done {
+		return false, e
+	}
+	s, e := l.passwordTarget(ctx, op)
+	if e != nil {
+		return false, e
+	}
+	if c.OriginalState == "running" {
+		if !c.BootSent {
+			return false, &Error{Code: "密码重置事件已完成，但自动开机未派发；请人工核实运行状态，只读核实不会开机", Uncertain: true}
+		}
+		boot, e := l.eventFinished(ctx, op.ResourceID, "start", c.BootEventAfter, 0)
+		return boot && s.Instance.State == "running", e
+	}
+	if c.OriginalState == "offline" {
+		return s.Instance.State == "offline", nil
+	}
+	return true, nil
 }

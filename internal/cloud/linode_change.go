@@ -81,9 +81,6 @@ func (l *Linode) ValidateChange(ctx context.Context, id, action string, c Linode
 	if s.Snapshot != c.Snapshot {
 		return errors.New("服务器配置、磁盘或网络已变化，请刷新详情重新确认")
 	}
-	if s.Instance.State != "running" && s.Instance.State != "offline" {
-		return errors.New("服务器正在执行其他操作，请等待云端任务结束")
-	}
 	if action == "firewall-bind" {
 		if c.Firewall == nil {
 			return errors.New("请选择防火墙模式")
@@ -114,16 +111,15 @@ func (l *Linode) ValidateChange(ctx context.Context, id, action string, c Linode
 	if _, e = l.eventBaseline(ctx, id, action); e != nil {
 		return e
 	}
-	for _, d := range s.Disks {
-		if d.Status != "ready" {
-			return errors.New("磁盘尚未就绪，未发送操作")
+	if action != "password-reset" {
+		for _, d := range s.Disks {
+			if d.Status != "ready" {
+				return errors.New("磁盘尚未就绪，未发送操作")
+			}
 		}
 	}
 	switch action {
 	case "password-reset":
-		if s.Instance.State != "offline" {
-			return errors.New("重置root密码需要先关机；Narbe不会自动关机，请确认关机后再操作")
-		}
 		if c.Password == "" {
 			return errors.New("请输入新root密码")
 		}
@@ -257,7 +253,7 @@ func (l *Linode) ValidateChange(ctx context.Context, id, action string, c Linode
 	return nil
 }
 func (l *Linode) Change(ctx context.Context, id, action string, c LinodeChange, token string) (op Operation, err error) {
-	if action == "rebuild" {
+	if action == "rebuild" || action == "password-reset" {
 		if e := l.ValidateChange(ctx, id, action, c); e != nil {
 			return op, e
 		}
@@ -331,10 +327,13 @@ func (l *Linode) Change(ctx context.Context, id, action string, c LinodeChange, 
 	if c.Snapshot != "" && c.Snapshot != s.Snapshot {
 		return op, errors.New("派发前资源配置已变化，未发送操作")
 	}
-	if (action == "password-reset" || action == "clone") && s.Instance.State != "offline" {
+	if action == "clone" && s.Instance.State != "offline" {
 		return op, errors.New("派发前服务器已不是关机状态，未发送操作")
 	}
 	op.Region = s.Instance.Region
+	if action == "password-reset" {
+		return l.resetPassword(ctx, op, s, c)
+	}
 	if action == "firewall-bind" {
 		if c.BindingSnapshot != "" {
 			attached, e := l.attachedFirewalls(ctx, id, c.InterfaceID)
@@ -407,9 +406,6 @@ func (l *Linode) Change(ctx context.Context, id, action string, c LinodeChange, 
 	case "resize":
 		path += "resize"
 		body = map[string]any{"type": c.Plan, "migration_type": "cold", "allow_auto_disk_resize": false}
-	case "password-reset":
-		path = fmt.Sprintf("/linode/instances/%s/disks/%d/password", id, c.DiskID)
-		body = map[string]string{"password": c.Password}
 	case "migrate":
 		path += "migrate"
 		op.Region = c.Region
@@ -510,4 +506,188 @@ func (l *Linode) Change(ctx context.Context, id, action string, c LinodeChange, 
 		}
 	}
 	return op, nil
+}
+
+// resetPassword is one bounded dispatch, never a replayable workflow. Every
+// write is checkpointed first. A process restart or an uncertain result leaves
+// Poll with read-only evidence; Poll must never continue the next cloud write.
+func (l *Linode) resetPassword(ctx context.Context, op Operation, initial LinodeState, c LinodeChange) (_ Operation, err error) {
+	check := op.Linode
+	check.OriginalState = initial.Instance.State
+	check.TargetSnapshot = initial.Snapshot
+	for _, d := range initial.Disks {
+		if d.ID == c.DiskID {
+			check.TargetDiskFingerprint = passwordDiskFingerprint(d)
+		}
+	}
+	if check.TargetDiskFingerprint == "" {
+		return op, errors.New("目标系统磁盘无法确认，未发送密码操作")
+	}
+	accepted := false
+	knownFailure := false
+	defer func() {
+		if err != nil && accepted && !Uncertain(err) && !knownFailure && !errors.Is(err, ErrOperationFailed) {
+			var ce *Error
+			status, reason := 0, err.Error()
+			if errors.As(err, &ce) {
+				status, reason = ce.Status, ce.Code
+			}
+			err = &Error{Status: status, Code: check.Stage + "未完成：" + reason + "；已有云步骤受理，请核实账本，不会自动重发", Uncertain: true}
+		}
+	}()
+	save := func(stage string) error {
+		check.Stage = stage
+		check.Steps = append(check.Steps, stage)
+		return recordOperation(ctx, op)
+	}
+	if e := save("正在核实服务器和目标磁盘"); e != nil {
+		return op, e
+	}
+	if check.OriginalState == "running" {
+		if _, e := l.passwordTarget(ctx, op); e != nil {
+			return op, e
+		}
+		after, e := l.eventBaseline(ctx, op.ResourceID, "stop")
+		if e != nil {
+			return op, e
+		}
+		check.ShutdownEventAfter = after
+		check.ShutdownSent = true
+		if e = save("正在关机"); e != nil {
+			return op, e
+		}
+		if e = l.call(ctx, "POST", "/linode/instances/"+op.ResourceID+"/shutdown", map[string]any{}, nil); e != nil {
+			knownFailure = !Uncertain(e)
+			return op, e
+		}
+		accepted = true
+		if e = l.waitPasswordStep(ctx, op, "stop", after, 0, "offline"); e != nil {
+			return op, e
+		}
+		check.ShutdownConfirmed = true
+		if e = save("已关机"); e != nil {
+			return op, e
+		}
+	}
+	// An initially transitional cloud state is sent to the disk API as observed;
+	// the provider decides whether it is allowed. It is never treated as a reason
+	// to take an extra shutdown/boot step whose original intent is unknowable.
+	current, e := l.passwordTarget(ctx, op)
+	if e != nil {
+		return op, e
+	}
+	if check.ShutdownConfirmed && current.Instance.State != "offline" {
+		return op, &Error{Code: "关机后服务器状态已变化，未发送密码重置，请核实", Uncertain: true}
+	}
+	after, e := l.eventBaseline(ctx, op.ResourceID, "password-reset")
+	if e != nil {
+		return op, e
+	}
+	check.ResetEventAfter = after
+	check.EventAfter = after // compatibility with the existing password event ledger
+	check.PasswordResetSent = true
+	if e = save("正在重置密码"); e != nil {
+		return op, e
+	}
+	path := fmt.Sprintf("/linode/instances/%s/disks/%d/password", op.ResourceID, check.DiskID)
+	if e = l.call(ctx, "POST", path, map[string]string{"password": c.Password}, nil); e != nil {
+		knownFailure = !Uncertain(e)
+		return op, e
+	}
+	accepted = true
+	if e = l.waitPasswordStep(ctx, op, "password-reset", after, check.DiskID, ""); e != nil {
+		return op, e
+	}
+	check.PasswordResetConfirmed = true
+	if e = save("密码已重置"); e != nil {
+		return op, e
+	}
+	if check.OriginalState == "running" {
+		current, e = l.passwordTarget(ctx, op)
+		if e != nil {
+			return op, e
+		}
+		if current.Instance.State != "offline" {
+			return op, &Error{Code: "密码已重置，但实例已不处于关机状态，未发送自动开机，请核实", Uncertain: true}
+		}
+		after, e = l.eventBaseline(ctx, op.ResourceID, "start")
+		if e != nil {
+			return op, e
+		}
+		check.BootEventAfter = after
+		check.BootSent = true
+		if e = save("正在开机"); e != nil {
+			return op, e
+		}
+		if e = l.call(ctx, "POST", "/linode/instances/"+op.ResourceID+"/boot", map[string]any{}, nil); e != nil {
+			knownFailure = !Uncertain(e)
+			return op, e
+		}
+		if e = l.waitPasswordStep(ctx, op, "start", after, 0, "running"); e != nil {
+			return op, e
+		}
+		check.BootConfirmed = true
+	} else if check.OriginalState == "offline" {
+		current, e = l.passwordTarget(ctx, op)
+		if e != nil {
+			return op, e
+		}
+		if current.Instance.State != "offline" {
+			return op, &Error{Code: "密码事件已完成，但原关机状态已变化，请核实；未执行额外云写", Uncertain: true}
+		}
+	}
+	if e = save("已完成"); e != nil {
+		return op, e
+	}
+	return op, nil
+}
+
+func passwordDiskFingerprint(d LinodeDisk) string {
+	// Disk status is transient; ID, filesystem, allocation and label identify the
+	// selected disk. The full resource snapshot separately pins configuration.
+	return fingerprint(struct {
+		ID                int
+		Label, Filesystem string
+		Size              int
+	}{d.ID, d.Label, d.Filesystem, d.Size})
+}
+func (l *Linode) passwordTarget(ctx context.Context, op Operation) (LinodeState, error) {
+	s, e := l.state(ctx, op.ResourceID)
+	if e != nil {
+		return s, e
+	}
+	c := op.Linode
+	if c.SourceID != op.ResourceID || c.TargetSnapshot == "" || s.Snapshot != c.TargetSnapshot {
+		return s, &Error{Code: "服务器配置或目标磁盘身份已变化，未发送后续操作，请核实", Uncertain: true}
+	}
+	for _, d := range s.Disks {
+		if d.ID == c.DiskID && passwordDiskFingerprint(d) == c.TargetDiskFingerprint {
+			return s, nil
+		}
+	}
+	return s, &Error{Code: "原目标系统磁盘已无法确认，未发送后续操作", Uncertain: true}
+}
+func (l *Linode) waitPasswordStep(ctx context.Context, op Operation, action string, after, diskID int, state string) error {
+	phase, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	for {
+		done, e := l.eventFinished(phase, op.ResourceID, action, after, diskID)
+		if e != nil {
+			return e
+		}
+		if done {
+			s, e := l.passwordTarget(phase, op)
+			if e != nil {
+				return e
+			}
+			if state == "" || s.Instance.State == state {
+				return nil
+			}
+		}
+		select {
+		case <-phase.Done():
+			return &Error{Code: op.Linode.Stage + "结果尚未核实，后续步骤已停止；请核实云事件和实例状态，不会重发", Uncertain: true}
+		case <-time.After(2 * time.Second):
+		}
+	}
 }

@@ -198,9 +198,22 @@ try {
         await form.locator("[name=stackID]").selectOption("7");
         await form.locator("[data-udf]").fill("private-udf-fixture");
       }
-      await form.locator("[name=metadataAcknowledged]").check();
-      await form.locator("[name=acknowledge]").check();
-      await form.locator("[name=confirmName]").fill("source");
+      assert.equal(await form.locator("[name=confirmName]").count(), 0);
+      assert.equal(await form.locator("[name=acknowledge]").count(), 0);
+      assert.equal(
+        await form.locator("[name=password]").getAttribute("type"),
+        "text",
+      );
+      await form.locator("[data-password-toggle]").click();
+      assert.equal(
+        await form.locator("[name=password]").getAttribute("type"),
+        "password",
+      );
+      await form.locator("[data-password-toggle]").click();
+      assert.equal(
+        await form.locator("[name=password]").getAttribute("type"),
+        "text",
+      );
       await shot("rebuild-" + mode);
       const reply = page.waitForResponse(
         (r) => r.url().endsWith("/api/jobs") && r.request().method() === "POST",

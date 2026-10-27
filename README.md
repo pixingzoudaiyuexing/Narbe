@@ -6,13 +6,15 @@
 
 > 本分支新增 **beta.5 候选**：四云 API 全局直连／HTTP、HTTPS、SOCKS5、SOCKS5H 代理，三条独立出口 IP 检测、只读云 API 诊断，以及 Linode 重装初始化脚本。**Formal Independent Review REQUIRED / PENDING；不发布 beta.5、不合并 main、不修改 Owner 部署。** 覆盖、安全配置、截图与证据见 [BETA5_DELIVERY.md](docs/BETA5_DELIVERY.md)，接口依据见 [BETA5_SOURCES.md](docs/BETA5_SOURCES.md)。
 
+> 当前 `codex/task-ux-followup` 是独立后续体验候选：有限并发、单次确认、密码可见切换与 Linode 自动关机／重置／恢复；正式独立审核 REQUIRED / PENDING。保留原 beta.5 发行候选不动，不发布或合并。详见 [TASK_UX_DELIVERY.md](docs/TASK_UX_DELIVERY.md)。
+
 ## 已发布测试版安装
 
 从 [beta.4 Release](https://github.com/pixingzoudaiyuexing/Narbe/releases/tag/v0.1.0-beta.4) 下载已发布安装包。版本与 digest 固定，不使用 latest。安装说明见 [发布说明](release/README.md)；下文保留候选源码开发流程。beta.5 目前没有正式安装包或 GHCR 版本。
 
 ## 安装
 
-需要 Docker Engine/Desktop、Docker Compose v2、Buildx、Bash、OpenSSL、Python 3；仅源码开发需要 Go **1.26.9+**。支持 Linux amd64/arm64 源码构建；当前本机实际验证 linux/arm64，amd64 在 CI 构建。
+需要 Docker Engine/Desktop、Docker Compose v2、Buildx、Bash、OpenSSL、Python 3；仅源码开发需要 Go **1.26.10+**。支持 Linux amd64/arm64 源码构建；当前本机实际验证 linux/arm64，amd64 在 CI 构建。
 
 ```bash
 git clone https://github.com/pixingzoudaiyuexing/Narbe.git

@@ -4,13 +4,17 @@ package cloud
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 type Credentials map[string]string
@@ -272,12 +276,14 @@ func (r rest) callHeaders(ctx context.Context, method, path string, body, out an
 }
 func (r rest) request(ctx context.Context, method, path string, body, out any, filter string) (http.Header, error) {
 	var b io.Reader
+	var requestRaw []byte
 	if body != nil {
 		raw, e := json.Marshal(body)
 		if e != nil {
 			return nil, e
 		}
 		b = bytes.NewReader(raw)
+		requestRaw = raw
 	}
 	req, e := http.NewRequestWithContext(ctx, method, r.base+path, b)
 	if e != nil {
@@ -300,7 +306,7 @@ func (r rest) request(ctx context.Context, method, path string, body, out any, f
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-		return resp.Header, &Error{Status: resp.StatusCode, Code: errorCategory(raw), Uncertain: method != "GET" && (resp.StatusCode >= 500 || resp.StatusCode == 408)}
+		return resp.Header, &Error{Status: resp.StatusCode, Code: providerErrorReason(raw, requestRaw, r.token), Uncertain: method != "GET" && (resp.StatusCode >= 500 || resp.StatusCode == 408)}
 	}
 	if out != nil {
 		if e = json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(out); e != nil {
@@ -309,6 +315,127 @@ func (r rest) request(ctx context.Context, method, path string, body, out any, f
 	}
 	return resp.Header, nil
 }
+
+var errorSecretMarker = regexp.MustCompile(`(?i)(?:\b(?:token|secret|authorization|credential|private[_ -]?key|user[_ -]?data)\b|\b[a-z0-9_-]*(?:token|password|root[_-]?pass|secret|credential)[a-z0-9_-]*\b\s*(?:[:=]|(?:is|was)\b)|\bbearer\s|-----BEGIN|\b(?:ssh-rsa|ssh-ed25519)\s|https?://[^\s]*@)`)
+var providerCode = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.-]{0,63}$`)
+
+// Only documented text fields can leave this boundary. Raw provider responses can
+// echo credentials or user-supplied scripts and must never become public errors.
+func providerErrorReason(raw, requestRaw []byte, token string) string {
+	hidden := errorCategory(raw) + "（云端详细原因含敏感内容或非文本数据，已隐藏）"
+	var data struct {
+		Errors []struct{ Reason string } `json:"errors"`
+		Error  struct {
+			Code, Message string
+		} `json:"error"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(raw, &data) != nil {
+		return errorCategory(raw)
+	}
+	texts := []string{}
+	for _, item := range data.Errors {
+		texts = append(texts, item.Reason)
+	}
+	if data.Error.Code != "" && !providerCode.MatchString(data.Error.Code) {
+		return hidden
+	}
+	azure := data.Error.Message
+	if data.Error.Code != "" {
+		azure = data.Error.Code + ": " + azure
+	}
+	texts = append(texts, azure, data.Message)
+	secrets := errorRequestSecrets(requestRaw, token)
+	parts := []string{}
+	for _, text := range texts {
+		if errorTextContainsSecret(text, secrets) {
+			return hidden
+		}
+		text = strings.Map(func(r rune) rune {
+			if unicode.IsSpace(r) {
+				return ' '
+			}
+			if unicode.IsControl(r) || unicode.In(r, unicode.Cf) {
+				return -1
+			}
+			return r
+		}, text)
+		text = strings.Join(strings.Fields(text), " ")
+		if text == "" {
+			continue
+		}
+		if errorTextContainsSecret(text, secrets) || errorSecretMarker.MatchString(text) || strings.ContainsAny(text, "<>{}") {
+			return hidden
+		}
+		if utf8.RuneCountInString(text) > 320 {
+			text = string([]rune(text)[:320]) + "…"
+		}
+		if len(parts) < 3 {
+			parts = append(parts, text)
+		}
+	}
+	if len(parts) == 0 {
+		return errorCategory(raw)
+	}
+	result := strings.Join(parts, "; ")
+	if utf8.RuneCountInString(result) > 360 {
+		result = string([]rune(result)[:360]) + "…"
+	}
+	return result
+}
+
+func errorTextContainsSecret(text string, secrets []string) bool {
+	lower := strings.ToLower(text)
+	for _, secret := range secrets {
+		if secret != "" && strings.Contains(lower, strings.ToLower(secret)) {
+			return true
+		}
+	}
+	return false
+}
+
+func errorRequestSecrets(raw []byte, token string) []string {
+	values := []string{token}
+	var data any
+	if json.Unmarshal(raw, &data) == nil {
+		var collect func(any, bool)
+		collect = func(value any, sensitive bool) {
+			switch v := value.(type) {
+			case map[string]any:
+				for key, child := range v {
+					key = strings.NewReplacer("_", "", "-", "").Replace(strings.ToLower(key))
+					secret := sensitive
+					for _, word := range []string{"password", "rootpass", "token", "secret", "privatekey", "authorizedkeys", "sshpublickey", "userdata", "scriptdata"} {
+						secret = secret || strings.Contains(key, word)
+					}
+					collect(child, secret)
+				}
+			case []any:
+				for _, child := range v {
+					collect(child, sensitive)
+				}
+			case string:
+				if sensitive && v != "" {
+					values = append(values, v)
+					if decoded, err := base64.StdEncoding.DecodeString(v); err == nil && utf8.Valid(decoded) {
+						values = append(values, string(decoded))
+					}
+				}
+			}
+		}
+		collect(data, false)
+	}
+	secrets := []string{}
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		quoted, _ := json.Marshal(value)
+		secrets = append(secrets, value, strings.Join(strings.Fields(value), " "), url.QueryEscape(value), url.PathEscape(value), string(quoted[1:len(quoted)-1]), base64.StdEncoding.EncodeToString([]byte(value)), base64.RawStdEncoding.EncodeToString([]byte(value)), base64.URLEncoding.EncodeToString([]byte(value)), base64.RawURLEncoding.EncodeToString([]byte(value)))
+	}
+	return secrets
+}
+
 func errorCategory(raw []byte) string {
 	s := strings.ToLower(string(raw))
 	for _, c := range []struct {
