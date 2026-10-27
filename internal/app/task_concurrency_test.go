@@ -60,6 +60,13 @@ func TestFollowupSameAccountUnknownDoesNotBlockNewRequests(t *testing.T) {
 	if h.request("PUT", "accounts/"+aid, map[string]any{"name": "updated"}, true).Code != 200 {
 		t.Fatal("unknown blocked account edit")
 	}
+	h.fake.createErr = nil
+	h.a.runOne(context.Background())
+	var nextState string
+	h.a.S.DB.QueryRow("SELECT state FROM jobs WHERE id=?", second.ID).Scan(&nextState)
+	if nextState != "succeeded" || h.fake.calls != 2 {
+		t.Fatal("new work did not execute independently of unknown", nextState, h.fake.calls)
+	}
 	var n int
 	h.a.S.DB.QueryRow("SELECT count(*) FROM jobs WHERE state='unknown'").Scan(&n)
 	if n != 1 {
