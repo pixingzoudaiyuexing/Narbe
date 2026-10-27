@@ -74,7 +74,7 @@ type job struct {
 }
 
 func New(s *store.Store, origin string) *App {
-	return &App{S: s, Origin: strings.TrimRight(origin, "/"), Lifecycle: lifecycle.New(), attempts: map[string][]time.Time{}, loginSlots: make(chan struct{}, 2), wake: make(chan struct{}, 1), inventories: map[string]*inventoryEntry{}, inventorySlots: make(chan struct{}, 2), advancedSlots: make(chan struct{}, 2)}
+	return &App{S: s, Origin: strings.TrimRight(origin, "/"), Lifecycle: lifecycle.New(), attempts: map[string][]time.Time{}, loginSlots: make(chan struct{}, 2), wake: make(chan struct{}, 4), inventories: map[string]*inventoryEntry{}, inventorySlots: make(chan struct{}, 2), advancedSlots: make(chan struct{}, 2)}
 }
 func (a *App) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -205,6 +205,9 @@ func (a *App) provider(id string) (account, cloud.Provider, error) {
 	return a.providerContext(context.Background(), id)
 }
 func (a *App) providerContext(ctx context.Context, id string) (account, cloud.Provider, error) {
+	if pinned, ok := ctx.Value(providerSnapshotKey{}).(providerSnapshot); ok && pinned.account.ID == id {
+		return pinned.account, pinned.provider, nil
+	}
 	var acc account
 	var sealed []byte
 	e := a.S.DB.QueryRow("SELECT id,name,provider,credentials,created,revision FROM accounts WHERE id=? AND retired=0", id).Scan(&acc.ID, &acc.Name, &acc.Provider, &sealed, &acc.Created, &acc.Revision)
@@ -330,9 +333,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		b.Confirmation = ""
-		a.network.Lock()
-		defer a.network.Unlock()
-		ns, err := a.networkLocked()
+		ns, err := a.networkSnapshot()
 		if err != nil {
 			fail(w, 500, err.Error())
 			return
@@ -341,14 +342,26 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
 		r = r.WithContext(context.WithValue(ctx, networkContext{}, ns))
-		acc, _, err := a.providerContext(r.Context(), b.AccountID)
+		pinned, acc, _, err := a.pinProvider(r.Context(), b.AccountID)
 		if err != nil {
 			fail(w, 400, err.Error())
 			return
 		}
+		r = r.WithContext(pinned)
 		b.AccountRevision = acc.Revision
 		if e := a.validate(r.Context(), b); e != nil {
 			cloudFail(w, e)
+			return
+		}
+		a.network.Lock()
+		defer a.network.Unlock()
+		if current, err := a.networkLocked(); err != nil || current.Revision != ns.Revision {
+			fail(w, 409, "网络出口已变化，请重新确认")
+			return
+		}
+		var currentRevision int
+		if err := a.S.DB.QueryRow("SELECT revision FROM accounts WHERE id=? AND retired=0", b.AccountID).Scan(&currentRevision); err != nil || currentRevision != acc.Revision {
+			fail(w, 409, "账号凭据已变化，请重新确认")
 			return
 		}
 		id := store.ID()
@@ -468,7 +481,8 @@ func (a *App) accountEdit(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	var b struct {
 		Name        string            `json:"name"`
-		ConfirmName string            `json:"confirmName"`
+		ConfirmName string            `json:"confirmName"` // Accepted for older clients; no typed-name gate.
+		Password    string            `json:"password"`
 		Credentials cloud.Credentials `json:"credentials"`
 	}
 	if read(r, &b) != nil {
@@ -502,8 +516,8 @@ func (a *App) accountEdit(w http.ResponseWriter, r *http.Request, id string) {
 				return
 			}
 		}
-	} else if b.ConfirmName != acc.Name {
-		fail(w, 400, "请输入准确的账号备注确认移除")
+	} else if !a.checkAdminPassword(b.Password) {
+		fail(w, 400, "需要管理员密码确认移除账号")
 		return
 	}
 	tx, e := a.S.DB.Begin()
@@ -515,15 +529,6 @@ func (a *App) accountEdit(w http.ResponseWriter, r *http.Request, id string) {
 	var retired, revision int
 	if e = tx.QueryRow("SELECT retired,revision FROM accounts WHERE id=?", id).Scan(&retired, &revision); e != nil || retired != 0 || revision != acc.Revision {
 		fail(w, 409, "账号已移除或凭据已变化，请刷新")
-		return
-	}
-	var busy int
-	if e = tx.QueryRow("SELECT count(*) FROM jobs WHERE account_id=? AND state IN ('queued','running','unknown')", id).Scan(&busy); e != nil {
-		fail(w, 500, "任务状态读取失败")
-		return
-	}
-	if busy > 0 {
-		fail(w, 409, "该账号有待处理或结果未知任务，请先核实")
 		return
 	}
 	var updated sql.Result
@@ -585,8 +590,8 @@ func (a *App) validate(ctx context.Context, b mutation) error {
 	if b.AccountRevision != acc.Revision {
 		return errors.New("账号凭据已变化，请重新检查并确认操作")
 	}
-	if b.Name == "" || b.ConfirmName != b.Name {
-		return errors.New("请输入准确的资源名称确认操作")
+	if b.Name == "" {
+		return errors.New("资源名称缺失，请刷新资源身份")
 	}
 	if b.Action != "create" && (b.Spec.UserData != "" || b.Spec.ScriptMode != "" && b.Spec.ScriptMode != "none" || b.Spec.StackScriptID != 0 || b.Spec.StackScriptSnapshot != "" || b.Spec.StackScriptName != "" || len(b.Spec.StackScriptData) > 0 || b.Spec.ScriptCompatibilityAck) {
 		return errors.New("初始化脚本仅可用于新建服务器")
@@ -761,12 +766,10 @@ func (a *App) validate(ctx context.Context, b mutation) error {
 	}
 	for _, i := range items {
 		if i.ID == b.Target && i.Name == b.Name && i.Region == b.Region {
-			for _, action := range i.Actions {
-				if action == b.Action {
-					return nil
-				}
+			if containsName([]string{"start", "stop", "reboot", "delete"}, b.Action) || b.Action == "poweroff" && acc.Provider == "azure" {
+				return nil
 			}
-			return errors.New("实例当前状态不支持该操作")
+			return errors.New("不支持的云操作")
 		}
 	}
 	return errors.New("实例不存在或身份已变化，请刷新列表")
@@ -791,9 +794,7 @@ func (a *App) submit(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "请求格式无效")
 		return
 	}
-	a.network.Lock()
-	defer a.network.Unlock()
-	ns, err := a.networkLocked()
+	ns, err := a.networkSnapshot()
 	if err != nil {
 		fail(w, 500, err.Error())
 		return
@@ -820,6 +821,13 @@ func (a *App) submit(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+	}
+	a.network.Lock()
+	defer a.network.Unlock()
+	current, err := a.networkLocked()
+	if err != nil {
+		fail(w, 500, "网络配置不可用")
+		return
 	}
 	raw, _ := json.Marshal(b)
 	sealed, e := a.S.Seal(raw, "job:"+b.ID)
@@ -848,7 +856,7 @@ func (a *App) submit(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "任务查询失败")
 		return
 	}
-	if b.NetworkRevision != ns.Revision {
+	if b.NetworkRevision != current.Revision {
 		fail(w, 409, "网络出口已变化，请重新确认")
 		return
 	}
@@ -865,15 +873,6 @@ func (a *App) submit(w http.ResponseWriter, r *http.Request) {
 	var revision int
 	if e = tx.QueryRow("SELECT revision FROM accounts WHERE id=? AND retired=0", b.AccountID).Scan(&revision); e != nil || revision != b.AccountRevision {
 		fail(w, 409, "账号凭据已变化，请重新确认")
-		return
-	}
-	var busy int
-	if e = tx.QueryRow("SELECT count(*) FROM jobs WHERE account_id=? AND state IN ('queued','running','unknown')", b.AccountID).Scan(&busy); e != nil {
-		fail(w, 500, "任务查询失败")
-		return
-	}
-	if busy > 0 {
-		fail(w, 409, "该账号已有待处理或结果未知任务，请先核实")
 		return
 	}
 	_, e = tx.Exec("INSERT INTO jobs(id,account_id,action,region,target,name,payload,state,progress,created,updated) VALUES(?,?,?,?,?,?,?,'queued','等待执行',?,?)", b.ID, b.AccountID, b.Action, b.Region, b.Target, b.Name, sealed, store.Now(), store.Now())
@@ -940,18 +939,18 @@ func (a *App) jobAction(w http.ResponseWriter, r *http.Request, path string) {
 			ConfirmName string `json:"confirmName"`
 			Checked     bool   `json:"checked"`
 		}
-		if read(r, &b) != nil || !b.Checked || !store.CheckPassword(b.Password, a.S.Setting("password")) {
+		if read(r, &b) != nil || !b.Checked || !a.checkAdminPassword(b.Password) {
 			fail(w, 400, "需要管理员密码及明确的云端核实确认")
 			return
 		}
-		res, e := a.S.DB.Exec("UPDATE jobs SET state='resolved',progress='管理员已在云控制台人工核实并解除本地阻塞；未重试或删除任何资源',updated=? WHERE id=? AND name=? AND state='unknown'", store.Now(), id, b.ConfirmName)
+		res, e := a.S.DB.Exec("UPDATE jobs SET state='resolved',progress='管理员已在云控制台人工核实；未重试或删除任何资源',updated=? WHERE id=? AND state='unknown'", store.Now(), id)
 		if e != nil {
 			fail(w, 500, "核实记录保存失败")
 			return
 		}
 		n, _ := res.RowsAffected()
 		if n != 1 {
-			fail(w, 409, "任务状态或名称不匹配")
+			fail(w, 409, "任务状态已变化")
 			return
 		}
 		reply(w, 200, map[string]bool{"ok": true})
@@ -962,8 +961,8 @@ func (a *App) jobAction(w http.ResponseWriter, r *http.Request, path string) {
 		return
 	}
 	var aid, state, act string
-	var result []byte
-	if e := a.S.DB.QueryRow("SELECT account_id,state,action,result FROM jobs WHERE id=?", id).Scan(&aid, &state, &act, &result); e != nil {
+	var result, payload []byte
+	if e := a.S.DB.QueryRow("SELECT account_id,state,action,result,payload FROM jobs WHERE id=?", id).Scan(&aid, &state, &act, &result, &payload); e != nil {
 		fail(w, 404, "任务不存在")
 		return
 	}
@@ -976,12 +975,24 @@ func (a *App) jobAction(w http.ResponseWriter, r *http.Request, path string) {
 		fail(w, 409, "缺少可靠的云端完成证据；请在云控制台按任务标识核实，系统不会重新执行")
 		return
 	}
-	_, p, e := a.provider(aid)
+	raw, e := a.S.Unseal(payload, "job:"+id)
+	var original mutation
+	if e != nil || json.Unmarshal(raw, &original) != nil || original.AccountID != aid {
+		fail(w, 409, "任务原始账号身份无法核实，请到云控制台检查")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	acc, p, e := a.providerContext(ctx, aid)
 	if e != nil {
 		cloudFail(w, e)
 		return
 	}
-	done, e := p.Poll(r.Context(), op)
+	if acc.Revision != original.AccountRevision {
+		fail(w, 409, "云账号凭据已变更，不能以新账号状态证明原任务；请到原云控制台核实")
+		return
+	}
+	done, e := p.Poll(ctx, op)
 	if e != nil {
 		cloudFail(w, e)
 		return
@@ -990,9 +1001,13 @@ func (a *App) jobAction(w http.ResponseWriter, r *http.Request, path string) {
 		fail(w, 409, "云端尚未达到目标状态，请稍后再次核实")
 		return
 	}
-	_, e = a.S.DB.Exec("UPDATE jobs SET state='succeeded',progress='只读核实云端目标状态已达到',error='',updated=? WHERE id=? AND state='unknown'", store.Now(), id)
+	updated, e := a.S.DB.Exec("UPDATE jobs SET state='succeeded',progress='只读核实云端目标状态已达到',error='',updated=? WHERE id=? AND state='unknown' AND EXISTS(SELECT 1 FROM accounts WHERE id=? AND retired=0 AND revision=?)", store.Now(), id, aid, original.AccountRevision)
 	if e != nil {
 		fail(w, 500, "核实结果保存失败")
+		return
+	}
+	if n, _ := updated.RowsAffected(); n != 1 {
+		fail(w, 409, "任务或账号身份已变化，请刷新")
 		return
 	}
 	reply(w, 200, map[string]bool{"ok": true})

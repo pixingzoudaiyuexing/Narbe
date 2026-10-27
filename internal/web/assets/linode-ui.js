@@ -1,3 +1,4 @@
+import { cloudPasswordInput } from "./password-ui.js";
 import { startupFields, bindStartup } from "./startup-ui.js";
 import {
   configLabel,
@@ -283,7 +284,7 @@ const warnings = {
   resize:
     "冷迁移可能停机并迁移宿主机。不会自动缩小磁盘或删除数据；附加Volume与特殊托管关系需先在控制台处理。",
   "password-reset":
-    "需要服务器完全关机。只重置选定系统磁盘的root密码，不自动关机或开机。",
+    "后台会核实服务器与所选系统盘，按需关机、重置root密码并确认事件。原本运行的服务器在重置确认后重新开机；原本关机的保持关机。结果无法核实时停止后续操作，不自动重试云写。",
   clone:
     "会创建新的计费实例。源服务器需先关机保证副本一致；克隆磁盘和配置，不复制附加Volume、锁或placement group。新机保持关机，防火墙仅调整新机。",
   migrate:
@@ -426,20 +427,20 @@ async function advancedDialog(s, acc, action) {
   if (["resize", "clone"].includes(action))
     fields += `<label class="field">目标配置<select name="newPlan" required></select></label>`;
   if (action === "rebuild")
-    fields += `<label class="field">重装系统镜像<select name="newImage" required></select></label><label class="field">新root密码（与SSH公钥至少选一项）<input name="password" type="password" autocomplete="new-password" maxlength="128"></label><label class="field">SSH公钥<textarea name="publicKey" placeholder="ssh-ed25519 …"></textarea></label><label class="field">已有SSH密钥<select name="newKey"></select></label>`;
+    fields += `<label class="field">重装系统镜像<select name="newImage" required></select></label><label class="field">新root密码（与SSH公钥至少选一项）${cloudPasswordInput('maxlength="128"')}</label><label class="field">SSH公钥<textarea name="publicKey" placeholder="ssh-ed25519 …"></textarea></label><label class="field">已有SSH密钥<select name="newKey"></select></label>`;
   if (action === "rebuild")
     fields +=
       startupFields() +
-      `<p class="notice">重装会清除所有现有磁盘及配置。当前Metadata：${s.hasUserData === true ? "已存在" : s.hasUserData === false ? "未配置" : "未核实"}。不提交新Metadata不能保证延续旧User Data；需要继续使用时请重新配置。云防火墙绑定及网络接口不随脚本改变。</p><label class="check"><input name="metadataAcknowledged" type="checkbox" required>已备份磁盘，理解Metadata需要重新配置且API成功不代表脚本执行成功</label><div data-rebuild-startup-summary class="notice"></div>`;
+      `<p class="notice">重装会清除所有现有磁盘及配置。当前Metadata：${s.hasUserData === true ? "已存在" : s.hasUserData === false ? "未配置" : "未核实"}。不提交新Metadata不能保证延续旧User Data；需要继续使用时请重新配置。云防火墙绑定及网络接口不随脚本改变。</p><p class="help">点击“确认重装系统”即确认已备份磁盘，理解Metadata需要重新配置且API成功不代表脚本执行成功。</p><div data-rebuild-startup-summary class="notice"></div>`;
   if (action === "password-reset")
-    fields += `<label class="field">系统磁盘<select name="newDisk" required>${ctx.options(s.disks.filter((d) => ["ext3", "ext4"].includes(d.filesystem)).map((d) => ({ id: String(d.id), name: d.label + ` · ${d.size} MB · ${d.filesystem}` })))}</select></label><label class="field">新root密码<input name="password" type="password" autocomplete="new-password" minlength="11" maxlength="128" required></label><p class="help">避免常见、重复或易猜密码；最终强度由Linode检查。多个系统盘必须明确选择要修改的磁盘。</p>`;
+    fields += `<label class="field">系统磁盘<select name="newDisk" required>${ctx.options(s.disks.filter((d) => ["ext3", "ext4"].includes(d.filesystem)).map((d) => ({ id: String(d.id), name: d.label + ` · ${d.size} MB · ${d.filesystem}` })))}</select></label><label class="field">新root密码${cloudPasswordInput('minlength="11" maxlength="128" required')}</label><p class="help">避免常见、重复或易猜密码；最终强度由Linode检查。多个系统盘必须明确选择要修改的磁盘。</p>`;
   if (action === "clone" || action === "firewall-bind")
     fields += firewallFields();
   if (action === "firewall-bind" && s.generation === "linode")
     fields += `<label class="field">网络接口<select name="newInterface" required>${ctx.options(s.interfaces.filter((i) => i.public || i.vpc).map((i) => ({ id: String(i.id), name: `${i.id} · ${i.public ? "公网Public" : "VPC"}` })))}</select></label>`;
   ctx.openDialog(
     title,
-    `<form class="advanced-form"><div class="error-box" role="alert"></div>${instanceSummary(s, acc)}<p class="notice">${warnings[action]}</p>${fields}<div class="target-comparison"></div><label class="check"><input name="acknowledge" type="checkbox" required>已了解并确认以上影响</label><label class="field">输入服务器名称「${escape(source.name)}」确认<input name="confirmName" required autocomplete="off"></label><div class="dialog-actions"><button type="button" data-close>取消</button><button class="danger" type="submit" ${needsCatalog ? "disabled" : ""}>核实并确认${title}</button></div></form>`,
+    `<form class="advanced-form"><div class="error-box" role="alert"></div>${instanceSummary(s, acc)}<p class="notice">${warnings[action]}</p>${fields}<div class="target-comparison"></div><div class="dialog-actions"><button type="button" data-close>取消</button><button class="danger" type="submit" ${needsCatalog ? "disabled" : ""}>${action === "rebuild" ? "确认重装系统" : title}</button></div></form>`,
   );
   const f = ctx.dialog.querySelector("form");
   f.dataset.startupRegion = source.region;
@@ -586,12 +587,12 @@ async function advancedDialog(s, acc, action) {
     ctx.formAction(f, async () => {
       const p = {
         snapshot: s.snapshot,
-        acknowledge: f.elements.acknowledge.checked,
+        acknowledge: true,
       };
       if (startup) {
         if (!startup.valid()) throw Error("请检查初始化脚本、镜像和参数");
         p.startup = startup.spec();
-        p.metadataAcknowledged = f.elements.metadataAcknowledged.checked;
+        p.metadataAcknowledged = true;
       }
       if (f.elements.password) p.password = f.elements.password.value;
       if (f.elements.publicKey) p.sshPublicKey = f.elements.publicKey.value;
@@ -617,7 +618,7 @@ async function advancedDialog(s, acc, action) {
         spec: {},
         advanced: p,
         confirmation: "",
-        confirmName: f.elements.confirmName.value,
+        confirmName: source.name,
       });
       f.reset();
       ctx.dialog.close();
@@ -726,7 +727,7 @@ function firewallDialog(acc, f, action) {
       "firewall-status": "切换防火墙状态",
       "firewall-delete": "删除防火墙",
     }[action],
-    `<form class="firewall-form"><div class="error-box" role="alert"></div><p>Linode · ${escape(acc.name)}</p>${f ? `<p class="notice">本操作影响 ${f.devices.length} 个绑定：${escape(f.devices.map((d) => d.entity.label || String(d.entity.id)).join("、") || "无绑定")}。请确认所有受影响服务器；规则修改可能中断连接。</p>` : '<label class="field">防火墙名称<input name="label" minlength="3" maxlength="32" required></label>'}${["firewall-create", "firewall-rules"].includes(action) ? rulesEditor() : ""}<label class="check"><input name="acknowledge" type="checkbox" required>已了解并确认影响范围</label><label class="field">输入防火墙名称确认<input name="confirmName" required autocomplete="off"></label><div class="dialog-actions"><button type="button" data-close>取消</button><button class="danger" type="submit">核实并确认</button></div></form>`,
+    `<form class="firewall-form"><div class="error-box" role="alert"></div><p>Linode · ${escape(acc.name)}</p>${f ? `<p class="notice">本操作影响 ${f.devices.length} 个绑定：${escape(f.devices.map((d) => d.entity.label || String(d.entity.id)).join("、") || "无绑定")}。请确认所有受影响服务器；规则修改可能中断连接。</p>` : '<label class="field">防火墙名称<input name="label" minlength="3" maxlength="32" required></label>'}${["firewall-create", "firewall-rules"].includes(action) ? rulesEditor() : ""}<div class="dialog-actions"><button type="button" data-close>取消</button><button class="danger" type="submit">核实并确认</button></div></form>`,
   );
   const form = ctx.dialog.querySelector("form");
   if (form.querySelector("[data-add-rule]"))
@@ -743,7 +744,7 @@ function firewallDialog(acc, f, action) {
       const chosen = f?.label || form.elements.label.value;
       const advanced = {
         snapshot: f?.snapshot || "",
-        acknowledge: form.elements.acknowledge.checked,
+        acknowledge: true,
         ...(action === "firewall-create" ? { label: chosen } : {}),
         ...(["firewall-create", "firewall-rules"].includes(action)
           ? { rules: readRules(form) }
@@ -762,7 +763,7 @@ function firewallDialog(acc, f, action) {
         spec: {},
         advanced,
         confirmation: "",
-        confirmName: form.elements.confirmName.value,
+        confirmName: chosen,
       });
       form.reset();
       ctx.dialog.close();

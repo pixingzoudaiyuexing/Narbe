@@ -130,7 +130,7 @@ INSERT OR IGNORE INTO settings(key,value) VALUES('schema_version','1');
 		db.Close()
 		return nil, e
 	}
-	_, e = recovery.Exec("UPDATE jobs SET state='unknown',progress='应用重启；请核实云端结果，系统不会自动重复执行',updated=unixepoch() WHERE state='running'; UPDATE jobs SET state='cancelled',progress='应用重启，未派发任务已取消；请重新检查并确认操作',updated=unixepoch() WHERE state='queued'; DELETE FROM sessions WHERE expires<unixepoch(); DELETE FROM confirmations;")
+	_, e = recovery.Exec("UPDATE jobs SET state='unknown',progress='应用重启；最后阶段：'||progress||'；请核实云端结果，系统不会自动重复执行',updated=unixepoch() WHERE state='running'; UPDATE jobs SET state='cancelled',progress='应用重启，未派发任务已取消；请重新检查并确认操作',updated=unixepoch() WHERE state='queued'; DELETE FROM sessions WHERE expires<unixepoch(); DELETE FROM confirmations;")
 	if e == nil {
 		e = recovery.Commit()
 	}

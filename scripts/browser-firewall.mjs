@@ -66,8 +66,7 @@ try {
     assert.equal((await reply).status(), 200);
   };
   const submit = async (form, name) => {
-    await form.locator("[name=acknowledge]").check();
-    await form.locator("[name=confirmName]").fill(name);
+    assert.equal(await form.locator("[name=confirmName]").count(), 0);
     const reply = page.waitForResponse(
       (r) => r.url().endsWith("/api/jobs") && r.request().method() === "POST",
     );
@@ -146,7 +145,10 @@ try {
     await page
       .locator("#create-form [name=password]")
       .fill("Fixture-Password-84!");
-    await page.locator("#create-form [name=confirmName]").fill("new-server");
+    assert.equal(
+      await page.locator("#create-form [name=confirmName]").count(),
+      0,
+    );
   };
   await scenario("bad-policy");
   await openCreate();
