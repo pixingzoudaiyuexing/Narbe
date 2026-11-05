@@ -1,3 +1,4 @@
+import { cloudPasswordInput } from "./password-ui.js";
 import { networkSettings } from "./network-ui.js";
 import { startupFields, bindStartup } from "./startup-ui.js";
 import {
@@ -36,6 +37,7 @@ const state = {
   statusFilter: "",
   regionSearch: "",
   listPage: 1,
+  actionSelection: null,
 };
 const providers = {
   aws: "AWS",
@@ -62,7 +64,7 @@ const labels = {
   delete: "删除服务器",
 };
 const statuses = {
-  running: "运行中",
+  running: "正在执行",
   active: "运行中",
   on: "运行中",
   stopped: "已关机",
@@ -462,6 +464,16 @@ function render() {
       next.setSelectionRange(cursor, cursor);
   }
 }
+function instanceActions(instance, provider) {
+  const supported = ["start", "stop", "reboot", "delete"];
+  if (provider === "azure") supported.push("poweroff");
+  // Cloud state hints can order the menu, but only the cloud API decides
+  // whether a newly submitted operation is permitted by its live state.
+  const hints = Array.isArray(instance.actions) ? instance.actions : [];
+  return [
+    ...new Set([...hints.filter((a) => supported.includes(a)), ...supported]),
+  ];
+}
 function renderInstances(el) {
   const acc = account(),
     record = inventories.get(state.accountId),
@@ -482,7 +494,22 @@ function renderInstances(el) {
   state.listPage = Math.min(state.listPage, pages);
   const items = filtered.slice((state.listPage - 1) * 50, state.listPage * 50);
   const regions = regionChoices(v?.regions, state.regionSearch, state.region);
-  const table = `<p class="scroll-hint">← 左右滑动表格查看配置与操作 →</p><div class="table-wrap"><table><thead><tr><th>服务器 / 账号</th><th>状态</th><th>公网 IPv4 / IPv6</th><th>位置 / 配置</th><th>管理</th></tr></thead><tbody>${items.map((i, n) => `<tr><td><button class="quiet name" data-details="${n}">${esc(i.name)}</button><div class="secondary">${esc(providers[acc.provider])} · ${esc(acc.name)}</div><div class="secondary mono" title="${esc(i.id)}">${esc(i.id)}</div></td><td>${badge(i.state, true, acc.provider)}</td><td>${i.ips?.length ? i.ips.map((ip) => `<div class="mono">${esc(ip)}</div>`).join("") : '<span class="help">未分配或未确认</span>'}</td><td><div>${esc(regionLabel(v.regions, i.region, i.regionName))}</div><div class="config-text">${esc(configLabel(i, acc.provider))}</div><div class="secondary mono">${esc(i.plan || "型号未确认")}</div></td><td><div class="row-actions"><select aria-label="${esc(i.name)} 的操作" data-action-select="${n}">${i.actions.map((a) => `<option value="${a}">${esc(labels[a])}</option>`).join("")}</select><button data-action="${n}">执行</button></div></td></tr>`).join("")}</tbody></table></div>`;
+  const table = `<p class="scroll-hint">← 左右滑动表格查看配置与操作 →</p><div class="table-wrap"><table><thead><tr><th>服务器 / 账号</th><th>状态</th><th>公网 IPv4 / IPv6</th><th>位置 / 配置</th><th>管理</th></tr></thead><tbody>${items
+    .map(
+      (i, n) =>
+        `<tr><td><button class="quiet name" data-details="${n}">${esc(i.name)}</button><div class="secondary">${esc(providers[acc.provider])} · ${esc(acc.name)}</div><div class="secondary mono" title="${esc(i.id)}">${esc(i.id)}</div></td><td>${badge(i.state, true, acc.provider)}</td><td>${i.ips?.length ? i.ips.map((ip) => `<div class="mono">${esc(ip)}</div>`).join("") : '<span class="help">未分配或未确认</span>'}</td><td><div>${esc(regionLabel(v.regions, i.region, i.regionName))}</div><div class="config-text">${esc(configLabel(i, acc.provider))}</div><div class="secondary mono">${esc(i.plan || "型号未确认")}</div></td><td><div class="row-actions"><select aria-label="${esc(i.name)} 的操作" data-action-select="${n}">${instanceActions(
+          i,
+          acc.provider,
+        )
+          .map(
+            (a) =>
+              `<option value="${a}" ${state.actionSelection?.accountId === acc.id && state.actionSelection?.region === i.region && state.actionSelection?.target === i.id && state.actionSelection?.action === a ? "selected" : ""}>${esc(labels[a])}</option>`,
+          )
+          .join(
+            "",
+          )}</select><button data-action="${n}">执行</button></div></td></tr>`,
+    )
+    .join("")}</tbody></table></div>`;
   let body;
   if (!state.accounts.length)
     body =
@@ -523,7 +550,7 @@ function renderInstances(el) {
           "全部状态",
         )}</select></label><label>搜索服务器<input id="instance-search" type="search" value="${esc(state.search)}" placeholder="服务器名称、IP 或实例 ID"></label><button id="refresh" ${loading ? "disabled" : ""}>${loading ? "正在查询…" : "↻ 刷新资源"}</button></div><section class="inventory-summary">${snapshotInfo(acc.id)}${v?.warnings?.map((m) => `<p class="help">${esc(m)}</p>`).join("") || ""}${v?.failures?.map((f, n) => `<div class="failure-row"><span>${esc(f.region === "*" ? "当前查询范围" : regionLabel(v.regions, f.region, f.regionName))}：${esc(f.message)}</span><button data-retry="${n}" ${loading ? "disabled" : ""}>重试此范围</button></div>`).join("") || ""}</section>`
       : "") +
-    `<div class="error-box" role="alert">${esc(state.error)}</div>${state.jobs.some((j) => j.state === "unknown") ? '<div class="notice">有操作结果待核实。请先到「操作任务」核实云端结果。</div>' : ""}<section class="panel"><div class="panel-head"><h2>实例列表<span class="count">${loading ? "…" : v?.complete || filtered.length ? filtered.length : "—"}</span></h2><span class="help">${state.region ? esc(regionLabel(v?.regions, state.region)) : "全部地区"} · ${v ? `已发现 ${v.stats.total} 台${record?.error ? "（上次结果，当前总数未确认）" : v.complete ? "" : "，总数未确认"}` : "尚未完成查询"}</span></div>${body}${filtered.length > 50 ? `<div class="pagination"><button id="previous-page" ${state.listPage === 1 ? "disabled" : ""}>上一页</button><span>第 ${state.listPage} / ${pages} 页 · 每页最多50台</span><button id="next-page" ${state.listPage === pages ? "disabled" : ""}>下一页</button></div>` : ""}</section><p class="footer-note">关机并不一定停止计费。磁盘、网络、公网 IP 和备份仍可能收费。${acc?.provider === "azure" ? "Azure 删除仅删除VM，保留关联磁盘和网络资源；请到控制台核实费用。" : ""}</p>`;
+    `<div class="error-box" role="alert">${esc(state.error)}</div>${state.jobs.some((j) => j.state === "unknown") ? '<div class="notice">有操作结果待核实，可在「操作任务」查看最后步骤及核实建议；其他操作仍可正常提交。</div>' : ""}<section class="panel"><div class="panel-head"><h2>实例列表<span class="count">${loading ? "…" : v?.complete || filtered.length ? filtered.length : "—"}</span></h2><span class="help">${state.region ? esc(regionLabel(v?.regions, state.region)) : "全部地区"} · ${v ? `已发现 ${v.stats.total} 台${record?.error ? "（上次结果，当前总数未确认）" : v.complete ? "" : "，总数未确认"}` : "尚未完成查询"}</span></div>${body}${filtered.length > 50 ? `<div class="pagination"><button id="previous-page" ${state.listPage === 1 ? "disabled" : ""}>上一页</button><span>第 ${state.listPage} / ${pages} 页 · 每页最多50台</span><button id="next-page" ${state.listPage === pages ? "disabled" : ""}>下一页</button></div>` : ""}</section><p class="footer-note">操作是否允许由云端实时状态决定。关机并不一定停止计费。磁盘、网络、公网 IP 和备份仍可能收费。${acc?.provider === "azure" ? "Azure 删除仅删除VM，保留关联磁盘和网络资源；请到控制台核实费用。" : ""}</p>`;
   el.querySelector("#previous-page")?.addEventListener("click", () => {
     state.listPage--;
     render();
@@ -582,6 +609,17 @@ function renderInstances(el) {
     (b) =>
       (b.onclick = () => refresh(false, v.failures[+b.dataset.retry].region)),
   );
+  el.querySelectorAll("[data-action-select]").forEach((select) => {
+    select.onchange = () => {
+      const item = items[+select.dataset.actionSelect];
+      state.actionSelection = {
+        accountId: acc.id,
+        region: item.region,
+        target: item.id,
+        action: select.value,
+      };
+    };
+  });
   el.querySelectorAll("[data-action]").forEach(
     (b) =>
       (b.onclick = () => {
@@ -768,7 +806,7 @@ function renderAccounts(el) {
         const a = state.accounts[+b.dataset.remove];
         openDialog(
           "移除云账号",
-          `<form><p class="sub">云端资源不会被删除。本地凭据将移除，历史任务保留。</p><div class="error-box" role="alert"></div><label class="field">输入账号备注「${esc(a.name)}」确认<input name="confirmName" required autocomplete="off"></label><div class="dialog-actions"><button type="button" data-close>取消</button><button class="danger" type="submit">移除账号</button></div></form>`,
+          `<form><p class="sub">云端资源不会被删除。本地凭据将移除，历史任务保留。</p><div class="error-box" role="alert"></div><label class="field">管理员密码<input name="password" type="password" autocomplete="current-password" required></label><div class="dialog-actions"><button type="button" data-close>取消</button><button class="danger" type="submit">移除账号</button></div></form>`,
         );
         const f = dialog.querySelector("form");
         f.onsubmit = (e) => {
@@ -776,7 +814,7 @@ function renderAccounts(el) {
           formAction(f, async () => {
             await api("accounts/" + a.id, {
               method: "DELETE",
-              body: { confirmName: f.confirmName.value },
+              body: { password: f.password.value },
             });
             dialog.close();
             await loadAccounts();
@@ -797,7 +835,7 @@ async function createDialog() {
     loadingCatalog = false;
   openDialog(
     "创建服务器",
-    `<form id="create-form"><div class="error-box" role="alert"></div><p class="sub">${esc(providers[provider])} · ${esc(account().name)}</p><div class="section-title"><span class="step">1</span>地区与配置</div><label class="field">服务器名称<input name="name" pattern="[A-Za-z0-9-]{1,63}" maxlength="63" required placeholder="例如：dev-server-01"></label><label class="field">搜索地区<input name="regionSearch" type="search" placeholder="输入中文位置或原始地区代码"></label><div class="grid2"><label class="field">地区<select name="region" required>${groupedRegions(catalog?.regions, state.region, "正在加载地区…")}</select></label><label class="field">规格<select name="plan" required disabled><option value="">先选择地区</option></select></label></div><div id="plan-info" class="notice">先选择地区，查询该地区可用的CPU、内存、磁盘和价格。</div><button type="button" class="quiet" id="retry-catalog" disabled>重新查询（将重置配置选择）</button><label class="field">搜索系统镜像<input name="imageSearch" placeholder="Ubuntu、Debian、Windows Server…" type="search"></label><label class="field">系统镜像<select name="image" required disabled><option value="">先选择地区和规格</option></select><p class="help">优先展示上游维护中的版本。维护期来源于官方发行数据；无法核实时标记未确认。</p><p id="image-compatibility" class="help"></p></label><label class="check"><input name="showOlder" type="checkbox">显示维护结束或尚未发布的镜像</label><div id="network-fields"></div><div class="section-title"><span class="step">2</span>登录与启动</div><div id="access-fields"></div>${startupFields()}${provider === "linode" ? firewallFields() : ""}<details><summary>更多启动选项</summary>${["aws", "digitalocean"].includes(provider) ? '<label class="check"><input name="ipv6" type="checkbox">分配 IPv6（需要地区及网络支持）</label>' : ""}${["linode", "digitalocean"].includes(provider) ? '<label class="check"><input name="backups" type="checkbox">启用云厂商自动备份（可能额外收费）</label>' : ""}${provider === "azure" ? '<label class="field">系统盘容量 GB（留空使用镜像默认值）<input name="disk" type="number" min="1" max="4095"></label>' : ""}</details><div class="section-title"><span class="step">3</span>核对配置</div><dl id="create-summary" class="summary" aria-live="polite"></dl><div class="notice">创建会产生云服务费用。提交后可在操作任务中查看进度。${provider === "azure" ? "将自动创建公网 IP 和网卡，资源名称附加任务后缀。所选子网需配置合适的安全规则。" : ""}</div><label class="field">再次输入服务器名称确认<input name="confirmName" required autocomplete="off"></label><div class="dialog-actions"><button type="button" data-close>取消</button><button class="primary" type="submit" disabled>确认创建</button></div></form>`,
+    `<form id="create-form"><div class="error-box" role="alert"></div><p class="sub">${esc(providers[provider])} · ${esc(account().name)}</p><div class="section-title"><span class="step">1</span>地区与配置</div><label class="field">服务器名称<input name="name" pattern="[A-Za-z0-9-]{1,63}" maxlength="63" required placeholder="例如：dev-server-01"></label><label class="field">搜索地区<input name="regionSearch" type="search" placeholder="输入中文位置或原始地区代码"></label><div class="grid2"><label class="field">地区<select name="region" required>${groupedRegions(catalog?.regions, state.region, "正在加载地区…")}</select></label><label class="field">规格<select name="plan" required disabled><option value="">先选择地区</option></select></label></div><div id="plan-info" class="notice">先选择地区，查询该地区可用的CPU、内存、磁盘和价格。</div><button type="button" class="quiet" id="retry-catalog" disabled>重新查询（将重置配置选择）</button><label class="field">搜索系统镜像<input name="imageSearch" placeholder="Ubuntu、Debian、Windows Server…" type="search"></label><label class="field">系统镜像<select name="image" required disabled><option value="">先选择地区和规格</option></select><p class="help">优先展示上游维护中的版本。维护期来源于官方发行数据；无法核实时标记未确认。</p><p id="image-compatibility" class="help"></p></label><label class="check"><input name="showOlder" type="checkbox">显示维护结束或尚未发布的镜像</label><div id="network-fields"></div><div class="section-title"><span class="step">2</span>登录与启动</div><div id="access-fields"></div>${startupFields()}${provider === "linode" ? firewallFields() : ""}<details><summary>更多启动选项</summary>${["aws", "digitalocean"].includes(provider) ? '<label class="check"><input name="ipv6" type="checkbox">分配 IPv6（需要地区及网络支持）</label>' : ""}${["linode", "digitalocean"].includes(provider) ? '<label class="check"><input name="backups" type="checkbox">启用云厂商自动备份（可能额外收费）</label>' : ""}${provider === "azure" ? '<label class="field">系统盘容量 GB（留空使用镜像默认值）<input name="disk" type="number" min="1" max="4095"></label>' : ""}</details><div class="section-title"><span class="step">3</span>核对配置</div><dl id="create-summary" class="summary" aria-live="polite"></dl><div class="notice">创建会产生云服务费用。提交后可在操作任务中查看进度。${provider === "azure" ? "将自动创建公网 IP 和网卡，资源名称附加任务后缀。所选子网需配置合适的安全规则。" : ""}</div><div class="dialog-actions"><button type="button" data-close>取消</button><button class="primary" type="submit" disabled>创建服务器</button></div></form>`,
   );
   const f = dialog.querySelector("form");
   const selectedAccount = account();
@@ -903,7 +941,7 @@ async function createDialog() {
   }
   function access() {
     f.querySelector("#access-fields").innerHTML =
-      `${["aws", "digitalocean", "linode"].includes(provider) ? `<label class="field">${provider === "aws" ? "SSH 密钥对" : "账号 SSH 密钥"}${provider === "linode" ? "（可选）" : ""}<select name="key" ${provider === "linode" ? "" : "required"}>${options(catalog?.keys, "", "选择已有密钥")}</select></label>` : ""}${["azure", "linode"].includes(provider) ? `${provider === "azure" ? '<label class="field">管理来源 IPv4 CIDR<input name="managementCidr" placeholder="你的公网 IP/32" required><p class="help">只允许这个可信地址范围访问 SSH 或 RDP。请在公网 IP 变化后到 Azure 控制台更新规则。</p></label><label class="field">管理员用户名<input name="username" value="narbe" pattern="[a-z0-9_-]{1,20}" required></label>' : ""}<label class="field">SSH 公钥${provider === "azure" ? "（Linux 必填）" : "（可选）"}<textarea name="sshPublicKey" placeholder="ssh-ed25519 AAAA…" maxlength="16384"></textarea></label><label class="field">${provider === "linode" ? "root 密码（使用 SSH 密钥可留空）" : "管理员密码（Windows 必填）"}<input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128"><p class="help">避免重复字符、连续数字和常见口令，建议使用密码管理器生成独立密码。云端还会检查密码强度。</p></label>` : ""}${provider === "aws" ? '<p class="help">Windows 请使用 RSA 密钥对，初始密码在 AWS 控制台解密查看。这里不会接收你的私钥。</p>' : ""}`;
+      `${["aws", "digitalocean", "linode"].includes(provider) ? `<label class="field">${provider === "aws" ? "SSH 密钥对" : "账号 SSH 密钥"}${provider === "linode" ? "（可选）" : ""}<select name="key" ${provider === "linode" ? "" : "required"}>${options(catalog?.keys, "", "选择已有密钥")}</select></label>` : ""}${["azure", "linode"].includes(provider) ? `${provider === "azure" ? '<label class="field">管理来源 IPv4 CIDR<input name="managementCidr" placeholder="你的公网 IP/32" required><p class="help">只允许这个可信地址范围访问 SSH 或 RDP。请在公网 IP 变化后到 Azure 控制台更新规则。</p></label><label class="field">管理员用户名<input name="username" value="narbe" pattern="[a-z0-9_-]{1,20}" required></label>' : ""}<label class="field">SSH 公钥${provider === "azure" ? "（Linux 必填）" : "（可选）"}<textarea name="sshPublicKey" placeholder="ssh-ed25519 AAAA…" maxlength="16384"></textarea></label><label class="field">${provider === "linode" ? "root 密码（使用 SSH 密钥可留空）" : "管理员密码（Windows 必填）"}${cloudPasswordInput('minlength="12" maxlength="128"')}<p class="help">避免重复字符、连续数字和常见口令，建议使用密码管理器生成独立密码。云端还会检查密码强度。</p></label>` : ""}${provider === "aws" ? '<p class="help">Windows 请使用 RSA 密钥对，初始密码在 AWS 控制台解密查看。这里不会接收你的私钥。</p>' : ""}`;
   }
   function images() {
     const plan = catalog?.plans?.find((p) => p.id === f.plan.value),
@@ -1087,7 +1125,7 @@ async function createDialog() {
         name: spec.name,
         spec,
         confirmation: "",
-        confirmName: data.confirmName,
+        confirmName: spec.name,
       };
       await submit(body);
       f.reset();
@@ -1122,6 +1160,34 @@ function actionDialog(i, action) {
   const selectedAccount = account();
   const aid = selectedAccount.id;
   const provider = selectedAccount.provider;
+  const body = {
+    id: intentId,
+    accountId: aid,
+    action,
+    region: i.region,
+    target: i.id,
+    name: i.name,
+    spec: {},
+    confirmation: "",
+    confirmName: i.name,
+  };
+  if (action !== "delete") {
+    submit(body).catch((error) => {
+      openDialog(
+        `${labels[action]}未确认提交`,
+        `<form><div class="error-box" role="alert">${esc(error.message)}</div><p>${esc(i.name)} · ${esc(i.id)}</p><p class="help">重试将使用同一请求标识核实提交结果，不会自动创建新请求。</p><div class="dialog-actions"><button type="button" data-close>关闭</button><button class="primary" type="submit">重试当前请求</button></div></form>`,
+      );
+      const retry = dialog.querySelector("form");
+      retry.onsubmit = (event) => {
+        event.preventDefault();
+        formAction(retry, async () => {
+          await submit(body);
+          dialog.close();
+        });
+      };
+    });
+    return;
+  }
   let warning =
     action === "delete"
       ? "删除无法撤销，请先确认已备份重要数据。"
@@ -1137,23 +1203,13 @@ function actionDialog(i, action) {
     warning += " 此操作保留 Azure 计算分配，计算费用仍会继续。";
   openDialog(
     labels[action],
-    `<form><div class="error-box" role="alert"></div><div class="notice">${esc(warning)}</div><dl class="summary"><dt>服务器</dt><dd>${esc(i.name)}</dd><dt>云厂商 / 账号</dt><dd>${esc(providers[provider] + " · " + selectedAccount.name)}</dd><dt>地区</dt><dd>${esc(regionLabel(currentInventory()?.regions, i.region, i.regionName))}</dd><dt>资源标识</dt><dd class="mono">${esc(i.id)}</dd></dl><label class="field">输入服务器名称「${esc(i.name)}」确认<input name="confirmName" required autocomplete="off"></label><div class="dialog-actions"><button type="button" data-close>取消</button><button class="${action === "delete" ? "danger" : "primary"}" type="submit">确认${labels[action]}</button></div></form>`,
+    `<form><div class="error-box" role="alert"></div><div class="notice">${esc(warning)}</div><dl class="summary"><dt>服务器</dt><dd>${esc(i.name)}</dd><dt>云厂商 / 账号</dt><dd>${esc(providers[provider] + " · " + selectedAccount.name)}</dd><dt>地区</dt><dd>${esc(regionLabel(currentInventory()?.regions, i.region, i.regionName))}</dd><dt>资源标识</dt><dd class="mono">${esc(i.id)}</dd></dl><div class="dialog-actions"><button type="button" data-close>取消</button><button class="${action === "delete" ? "danger" : "primary"}" type="submit">确认${labels[action]}</button></div></form>`,
   );
   const f = dialog.querySelector("form");
   f.onsubmit = (e) => {
     e.preventDefault();
     formAction(f, async () => {
-      await submit({
-        id: intentId,
-        accountId: aid,
-        action,
-        region: i.region,
-        target: i.id,
-        name: i.name,
-        spec: {},
-        confirmation: "",
-        confirmName: f.confirmName.value,
-      });
+      await submit(body);
       dialog.close();
     });
   };
@@ -1213,6 +1269,12 @@ function startupDetails(job) {
         : "尚未确认脚本已提交，不代表已执行。";
   return `<details class="startup-ledger"><summary>初始化脚本摘要与检查方法</summary><p>${esc(status)}</p><dl class="summary"><dt>模式 / ${s.stackscriptId ? "参数" : "脚本"}UTF-8字节</dt><dd>${esc(s.mode)} · ${s.bytes}</dd><dt>SHA-256</dt><dd class="mono">${esc(s.sha256)}</dd>${s.stackscriptId ? `<dt>StackScript</dt><dd>${esc(s.stackscriptName)} · ${s.stackscriptId}<br>脚本及定义版本 SHA-256：${esc(s.stackscriptSnapshot || "未确认")}</dd>` : ""}</dl><p class="help">实例创建、运行或资源就绪不代表脚本执行成功。${job.provider === "aws" ? "AWS Windows可检查 C:\\ProgramData\\Amazon\\EC2Launch\\log\\agent.log（具体路径取决于代理版本）。" : ""} Linux cloud-init可检查 /var/log/cloud-init.log 和 /var/log/cloud-init-output.log；Azure Linux Agent可检查 /var/log/waagent.log。StackScript输出取决于脚本自身，请登录新机核实，不在Narbe日志中打印脚本或参数。</p></details>`;
 }
+function taskProgress(job) {
+  const stage = job.result?.linode?.stage;
+  if (job.state === "unknown" && stage && stage !== job.progress)
+    return `${job.progress || "操作结果待核实"}（最后一步：${stage}）`;
+  return job.progress || stage || (job.state === "running" ? "正在执行" : "");
+}
 function renderJobs(el) {
   el.innerHTML =
     heading(
@@ -1220,7 +1282,7 @@ function renderJobs(el) {
       "查看进度与结果。结果未知的操作不会自动重新执行。",
       `<button id="refresh-jobs">↻ 刷新</button>`,
     ) +
-    `<section class="panel">${state.jobs.length ? state.jobs.map((j) => `<article class="task-row"><div class="task-top"><div><h3>${esc(labels[j.action] || j.action)} · ${esc(j.name)}</h3><div class="secondary">${esc(state.accounts.find((a) => a.id === j.accountId)?.name || "已移除账号")} · ${esc(j.region)} · ${date(j.created)}</div></div>${badge(j.state === "running" ? "provisioning" : j.state)}</div><p>${esc(j.progress)}${j.error ? " · " + esc(j.error) : ""}</p>${deletionLedgerDetails(j)}${startupDetails(j)}<details><summary>资源与任务标识</summary><pre>${esc("任务：" + j.id + "\n资源：" + (j.result?.resourceId || j.target || "尚未取得") + (j.result?.owned?.length ? "\n关联资源（可能继续计费）：\n" + j.result.owned.join("\n") : ""))}</pre></details>${j.state === "unknown" ? `<p><button data-reconcile="${esc(j.id)}">只读核实云端状态</button> <button data-resolve="${esc(j.id)}" data-name="${esc(j.name)}">已在云控制台核实</button></p>` : ""}${j.state === "queued" ? `<p><button data-cancel="${esc(j.id)}">取消等待中的操作</button></p>` : ""}</article>`).join("") : '<div class="empty"><div class="empty-icon">◷</div><h2>还没有操作任务</h2><p>创建或管理服务器后，操作进度会显示在这里。</p></div>'}</section><p class="footer-note">最多显示最近 200 条记录。未派发任务等待或校验超过 5 分钟、应用重启时会取消，需重新检查并确认。已提交操作结果未知时，请先核实云端，不要直接重复创建。</p>`;
+    `<section class="panel">${state.jobs.length ? state.jobs.map((j) => `<article class="task-row"><div class="task-top"><div><h3>${esc(labels[j.action] || j.action)} · ${esc(j.name)}</h3><div class="secondary">${esc(state.accounts.find((a) => a.id === j.accountId)?.name || "已移除账号")} · ${esc(j.region)} · ${date(j.created)}</div></div>${badge(j.state)}</div><p>${esc(taskProgress(j))}${j.error ? " · " + esc(j.error) : ""}</p>${j.state === "unknown" ? '<p class="help">最后一步尚未核实，后续风险步骤已停止。可先只读核实，必要时到云控制台检查；系统不会自动重发未知的云写请求。</p>' : ""}${deletionLedgerDetails(j)}${startupDetails(j)}<details><summary>资源与任务标识</summary><pre>${esc("任务：" + j.id + "\n资源：" + (j.result?.resourceId || j.target || "尚未取得") + (j.result?.owned?.length ? "\n关联资源（可能继续计费）：\n" + j.result.owned.join("\n") : ""))}</pre></details>${j.state === "unknown" ? `<p><button data-reconcile="${esc(j.id)}">只读核实云端状态</button> <button data-resolve="${esc(j.id)}" data-name="${esc(j.name)}">已在云控制台核实</button></p>` : ""}${j.state === "queued" ? `<p><button data-cancel="${esc(j.id)}">取消等待中的操作</button></p>` : ""}</article>`).join("") : '<div class="empty"><div class="empty-icon">◷</div><h2>还没有操作任务</h2><p>创建或管理服务器后，操作进度会显示在这里。</p></div>'}</section><p class="footer-note">最多显示最近 200 条记录。未派发任务等待或校验超过 5 分钟、应用重启时会取消，需重新检查并确认。已提交操作结果未知时，请先核实云端，不要直接重复创建。</p>`;
   el.querySelector("#refresh-jobs").onclick = updateJobs;
   for (const [attr, action] of [
     ["reconcile", "reconcile"],
@@ -1247,7 +1309,7 @@ function renderJobs(el) {
 function resolveDialog(id, name) {
   openDialog(
     "记录人工核实",
-    `<form><div class="error-box" role="alert"></div><div class="notice">请先在云控制台检查实例及关联资源。未找到资源不保证请求未发生；不要立即重复创建。此操作只解除本地阻塞，不会重试或删除云资源。</div><label class="field">输入服务器名称「${esc(name)}」<input name="confirmName" required></label><label class="field">管理员密码<input name="password" type="password" autocomplete="current-password" required></label><label class="check"><input name="checked" type="checkbox" required>我已在云控制台核实全部关联资源，并了解重复创建的费用风险</label><div class="dialog-actions"><button type="button" data-close>取消</button><button type="submit" class="primary">记录核实并解除阻塞</button></div></form>`,
+    `<form><div class="error-box" role="alert"></div><div class="notice">请先在云控制台检查实例及关联资源。未找到资源不保证请求未发生；不要立即重复创建。此操作只记录人工核实，不会重试或删除云资源，也不会改变其他任务。</div><p>服务器：${esc(name)}</p><label class="field">管理员密码<input name="password" type="password" autocomplete="current-password" required></label><label class="check"><input name="checked" type="checkbox" required>我已在云控制台核实全部关联资源，并了解重复创建的费用风险</label><div class="dialog-actions"><button type="button" data-close>取消</button><button type="submit" class="primary">记录人工核实</button></div></form>`,
   );
   const f = dialog.querySelector("form");
   f.onsubmit = (e) => {
@@ -1256,7 +1318,7 @@ function resolveDialog(id, name) {
       await api("jobs/" + id + "/resolve", {
         method: "POST",
         body: {
-          confirmName: f.confirmName.value,
+          confirmName: name,
           password: f.password.value,
           checked: f.checked.checked,
         },

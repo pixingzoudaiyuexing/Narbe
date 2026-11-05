@@ -240,6 +240,24 @@ try {
       { secure: false, uuid: "undefined", random: "function" },
     );
     await page.locator("td .name").nth(1).waitFor();
+    const supported = ["start", "stop", "reboot", "delete"];
+    if (provider === "azure") supported.push("poweroff");
+    for (const index of [0, 1]) {
+      const actions = await page
+        .locator(`[data-action-select="${index}"] option`)
+        .evaluateAll((options) => options.map((option) => option.value));
+      assert.equal(new Set(actions).size, actions.length, "duplicate action");
+      assert.deepEqual(
+        [...actions].sort(),
+        [...supported].sort(),
+        `${provider} runtime state must not hide supported API operations`,
+      );
+      assert.equal(
+        actions[0],
+        index ? "start" : "stop",
+        "retain API ordering hint",
+      );
+    }
     assert.equal(await page.locator(".count").innerText(), "2");
     if (provider === "azure")
       await page
@@ -266,8 +284,10 @@ try {
     await page.locator("#status-filter").selectOption("");
     await page.locator("#instance-search").fill("8.8.4.4");
     assert.equal(await page.locator("td .name").count(), 1);
+    await page.locator('[data-action-select="0"]').selectOption("delete");
     await page.locator('[data-action="0"]').click();
-    await page.locator("dialog input[name=confirmName]").waitFor();
+    await page.locator("dialog button[type=submit]").waitFor();
+    assert.equal(await page.locator("dialog [name=confirmName]").count(), 0);
     assert.ok(
       (await page.locator("dialog").innerText()).includes(regions()[1].name),
       "filtered row action changed region identity",
@@ -318,7 +338,7 @@ try {
       0,
       "architecture incompatible image shown",
     );
-    await f.locator("[name=confirmName]").fill("test-server");
+    assert.equal(await f.locator("[name=confirmName]").count(), 0);
     if (["aws", "azure"].includes(provider))
       await f.locator("[name=network]").selectOption("net");
     if (provider === "aws")
@@ -461,6 +481,7 @@ try {
   );
   await page.locator("#next-page").click();
   assert.equal(await page.locator("td .name").count(), 50);
+  await page.locator('[data-action-select="0"]').selectOption("delete");
   await page.locator('[data-action="0"]').click();
   await page
     .locator("dialog dl")

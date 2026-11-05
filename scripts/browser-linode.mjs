@@ -602,10 +602,8 @@ async function advanced(action) {
 async function completeAction(action, name = "fixture-source") {
   const form = dialog.locator("form"),
     before = jobs.length;
-  await form.locator('[name="acknowledge"]').check();
-  if (action === "rebuild")
-    await form.locator('[name="metadataAcknowledged"]').check();
-  await form.locator('[name="confirmName"]').fill(name);
+  assert.equal(await form.locator('[name="confirmName"]').count(), 0);
+  assert.equal(await form.locator('[name="acknowledge"]').count(), 0);
   await form.locator('button[type="submit"]').click();
   await dialog.waitFor({ state: "hidden" });
   assert.equal(
@@ -817,7 +815,7 @@ try {
   );
   await dialog.locator('[name="newDisk"]').selectOption("101");
   await dialog.locator('[name="password"]').fill("Fixture!R00tReset9x");
-  assert.match(await dialog.innerText(), /不自动关机或开机/);
+  assert.match(await dialog.innerText(), /按需关机、重置root密码并确认事件/);
   job = await completeAction("password-reset");
   assert.equal(job.advanced.diskId, 101);
   assert.equal(job.advanced.password, "Fixture!R00tReset9x");
@@ -1012,7 +1010,7 @@ try {
       await form.locator("[data-v4]").fill("0.0.0.0/0");
       await form.locator("[data-v6]").fill("::/0");
     }
-    await form.locator('[name="confirmName"]').fill(`fixture-created-${mode}`);
+    assert.equal(await form.locator('[name="confirmName"]').count(), 0);
     const before = jobs.length;
     await form.locator('button[type="submit"]').click();
     await dialog.waitFor({ state: "hidden" });

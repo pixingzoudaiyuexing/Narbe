@@ -210,7 +210,7 @@ async function fresh(p) {
   await f().locator("[name=plan]").selectOption("p");
   await f().locator("[name=image]").selectOption("linux");
   await f().locator("[name=name]").fill("startup-fixture");
-  await f().locator("[name=confirmName]").fill("startup-fixture");
+  assert.equal(await f().locator("[name=confirmName]").count(), 0);
   if (p === "aws") {
     await f().locator("[name=network]").selectOption("net");
     await f().locator("[name=group]").selectOption("group");

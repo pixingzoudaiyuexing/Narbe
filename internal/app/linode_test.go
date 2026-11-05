@@ -113,8 +113,8 @@ func TestLinodeAdvancedAuthenticationAndAccountIsolation(t *testing.T) {
 	}
 	b["target"] = "123"
 	b["confirmName"] = "wrong"
-	if r := h.request("POST", "confirm", b, true); r.Code == 200 {
-		t.Fatal("missing name confirmation")
+	if r := h.request("POST", "confirm", b, true); r.Code != 200 {
+		t.Fatal("typed name must not be required", r.Code, r.Body.String())
 	}
 	b["confirmName"] = "source"
 	b["advanced"].(map[string]any)["acknowledge"] = false

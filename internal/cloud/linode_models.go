@@ -126,20 +126,35 @@ type LinodeFirewallView struct {
 }
 
 type LinodeOperation struct {
-	Action           string             `json:"action"`
-	Steps            []string           `json:"steps,omitempty"`
-	Configured       bool               `json:"configured,omitempty"`
-	Plan             string             `json:"plan,omitempty"`
-	Image            string             `json:"image,omitempty"`
-	Label            string             `json:"label,omitempty"`
-	SourceID         string             `json:"sourceId,omitempty"`
-	Firewall         *FirewallSelection `json:"firewall,omitempty"`
-	InterfaceID      int                `json:"interfaceId,omitempty"`
-	Status           string             `json:"status,omitempty"`
-	EventAfter       int                `json:"eventAfter,omitempty"`
-	DiskID           int                `json:"diskId,omitempty"`
-	ExpectedRules    *FirewallRules     `json:"expectedRules,omitempty"`
-	ExpectedStatus   string             `json:"expectedStatus,omitempty"`
-	FirewallSnapshot string             `json:"firewallSnapshot,omitempty"`
-	StartedAt        int64              `json:"startedAt,omitempty"`
+	// Password-reset checkpoints contain identity and observed cloud state only.
+	// No password is stored in this publicly visible operation ledger.
+	Stage                  string             `json:"stage,omitempty"`
+	OriginalState          string             `json:"originalState,omitempty"`
+	TargetDiskFingerprint  string             `json:"targetDiskFingerprint,omitempty"`
+	TargetSnapshot         string             `json:"targetSnapshot,omitempty"`
+	ShutdownEventAfter     int                `json:"shutdownEventAfter,omitempty"`
+	ResetEventAfter        int                `json:"resetEventAfter,omitempty"`
+	BootEventAfter         int                `json:"bootEventAfter,omitempty"`
+	ShutdownSent           bool               `json:"shutdownSent,omitempty"`
+	PasswordResetSent      bool               `json:"passwordResetSent,omitempty"`
+	BootSent               bool               `json:"bootSent,omitempty"`
+	ShutdownConfirmed      bool               `json:"shutdownConfirmed,omitempty"`
+	PasswordResetConfirmed bool               `json:"passwordResetConfirmed,omitempty"`
+	BootConfirmed          bool               `json:"bootConfirmed,omitempty"`
+	Action                 string             `json:"action"`
+	Steps                  []string           `json:"steps,omitempty"`
+	Configured             bool               `json:"configured,omitempty"`
+	Plan                   string             `json:"plan,omitempty"`
+	Image                  string             `json:"image,omitempty"`
+	Label                  string             `json:"label,omitempty"`
+	SourceID               string             `json:"sourceId,omitempty"`
+	Firewall               *FirewallSelection `json:"firewall,omitempty"`
+	InterfaceID            int                `json:"interfaceId,omitempty"`
+	Status                 string             `json:"status,omitempty"`
+	EventAfter             int                `json:"eventAfter,omitempty"`
+	DiskID                 int                `json:"diskId,omitempty"`
+	ExpectedRules          *FirewallRules     `json:"expectedRules,omitempty"`
+	ExpectedStatus         string             `json:"expectedStatus,omitempty"`
+	FirewallSnapshot       string             `json:"firewallSnapshot,omitempty"`
+	StartedAt              int64              `json:"startedAt,omitempty"`
 }

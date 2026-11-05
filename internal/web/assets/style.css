@@ -33,6 +33,22 @@ select,
 textarea {
   font: inherit;
 }
+.password-entry {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+}
+.password-entry input {
+  width: 100%;
+  min-width: 0;
+}
+.password-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+}
 button,
 a,
 input,

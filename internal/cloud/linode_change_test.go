@@ -121,7 +121,12 @@ func (f *linodeChangeFixture) roundTrip(r *http.Request) (*http.Response, error)
 			return nil, io.ErrUnexpectedEOF
 		}
 		switch path {
-		case "/linode/instances/1/rebuild", "/linode/instances/1/resize", "/linode/instances/1/disks/11/password", "/linode/instances/1/migrate":
+		case "/linode/instances/1/disks/11/password":
+			if len(f.after) == 0 {
+				f.after = []map[string]any{linodeFixtureEvent(101, "password_reset", "finished", 1, 11)}
+			}
+			return f.jsonResponse(map[string]any{}), nil
+		case "/linode/instances/1/rebuild", "/linode/instances/1/resize", "/linode/instances/1/migrate":
 			return f.jsonResponse(map[string]any{}), nil
 		case "/linode/instances/1/clone":
 			f.instances["2"]["label"] = body["label"]
@@ -436,8 +441,8 @@ func TestLinodeChangeProtectsVolumesAndCrossRegionNetwork(t *testing.T) {
 	}
 }
 
-func TestLinodeChangePasswordRequiresOfflineOwnedSystemDisk(t *testing.T) {
-	for _, scenario := range []string{"online", "foreign-disk", "swap", "raw", "weak-password", "valid"} {
+func TestLinodeChangePasswordRequiresOwnedSystemDisk(t *testing.T) {
+	for _, scenario := range []string{"foreign-disk", "swap", "raw", "weak-password", "valid"} {
 		t.Run(scenario, func(t *testing.T) {
 			l, f := newLinodeChangeFixture(t)
 			c := linodeFixtureChange(t, l)
@@ -628,18 +633,18 @@ func TestLinodeChangePollNeedsUniqueNewEventAndExactResource(t *testing.T) {
 	}
 }
 
-func TestLinodeChangeRejectsAnyPendingCloudActionBeforeDispatch(t *testing.T) {
+func TestLinodeChangePendingCloudActionDefersDecisionToAPI(t *testing.T) {
 	for _, status := range []string{"scheduled", "started", "in_progress"} {
 		t.Run(status, func(t *testing.T) {
 			l, f := newLinodeChangeFixture(t)
 			f.before = []map[string]any{linodeFixtureEvent(77, "linode_migrate", status, 1, 0)}
 			c := linodeFixtureChange(t, l)
 			c.Plan = "plan-small"
-			if err := l.ValidateChange(context.Background(), "1", "resize", c); err == nil {
-				t.Fatal("resize accepted while another cloud action is pending")
+			if err := l.ValidateChange(context.Background(), "1", "resize", c); err != nil {
+				t.Fatal("pending events must not be used as local dispatch locks", err)
 			}
 			if len(f.writes) != 0 {
-				t.Fatal("pending protection sent a cloud write")
+				t.Fatal("validation sent a cloud write")
 			}
 		})
 	}
@@ -700,12 +705,8 @@ func TestLinodeChangeChecksBoundedLaterEventPages(t *testing.T) {
 				2: {linodeFixtureEvent(98, "linode_migrate", status, 1, 0)},
 			}
 			err := l.ValidateChange(context.Background(), "1", "resize", c)
-			if status == "finished" {
-				if err != nil {
-					t.Fatalf("fully read idle history rejected: %v", err)
-				}
-			} else if err == nil {
-				t.Fatal("older cloud operation omitted from busy check")
+			if err != nil {
+				t.Fatalf("pending history must remain an attribution baseline, not a local lock: %v", err)
 			}
 			if f.eventPageReads[1] != 1 || f.eventPageReads[2] != 1 {
 				t.Fatalf("event pages not consumed once: %v", f.eventPageReads)

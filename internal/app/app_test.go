@@ -223,7 +223,7 @@ func TestConfirmationIsBoundSingleUseExpiringAndIdempotent(t *testing.T) {
 		t.Fatal("expired confirmation accepted")
 	}
 }
-func TestConcurrentAccountMutationsHaveOneWinner(t *testing.T) {
+func TestConcurrentAccountMutationsBothEnqueue(t *testing.T) {
 	h := setup(t)
 	aid := h.add(t)
 	a := h.confirm(t, intent(aid))
@@ -244,11 +244,11 @@ func TestConcurrentAccountMutationsHaveOneWinner(t *testing.T) {
 			t.Fatal("unexpected", code)
 		}
 	}
-	if wins != 1 {
+	if wins != 2 {
 		t.Fatal("concurrent dispatch winners", wins)
 	}
 }
-func TestUnknownNeverReplaysAndBlocksCredentialRemoval(t *testing.T) {
+func TestUnknownNeverReplaysAndAllowsAccountManagement(t *testing.T) {
 	h := setup(t)
 	aid := h.add(t)
 	h.fake.createErr = &cloud.Error{Code: "connection lost", Uncertain: true}
@@ -265,8 +265,8 @@ func TestUnknownNeverReplaysAndBlocksCredentialRemoval(t *testing.T) {
 	if h.fake.calls != 1 {
 		t.Fatal(h.fake.calls)
 	}
-	if r := h.request("DELETE", "accounts/"+aid, map[string]string{"confirmName": "个人云账号"}, true); r.Code != 409 {
-		t.Fatal("busy credentials removed")
+	if r := h.request("PUT", "accounts/"+aid, map[string]string{"name": "个人云账号"}, true); r.Code != 200 {
+		t.Fatal("unknown must not lock account management", r.Code)
 	}
 	h.a.S.Close()
 	s, e := store.Open(h.dir)
@@ -284,7 +284,7 @@ func TestUnknownNeverReplaysAndBlocksCredentialRemoval(t *testing.T) {
 	if r := h.request("POST", "jobs/"+b.ID+"/resolve", map[string]any{"password": testPassword, "confirmName": b.Name, "checked": true}, true); r.Code != 200 {
 		t.Fatal(r.Code, r.Body.String())
 	}
-	if r := h.request("DELETE", "accounts/"+aid, map[string]string{"confirmName": "个人云账号"}, true); r.Code != 200 {
+	if r := h.request("DELETE", "accounts/"+aid, map[string]string{"password": testPassword}, true); r.Code != 200 {
 		t.Fatal(r.Code)
 	}
 	jobs, _ = h.a.jobs()
@@ -358,7 +358,7 @@ func TestCredentialUpdateCannotResurrectRetiredAccount(t *testing.T) {
 		done <- h.request("PUT", "accounts/"+aid, map[string]any{"name": "new-name", "credentials": map[string]string{"token": "new-fixture-token"}}, true).Code
 	}()
 	<-started
-	r := h.request("DELETE", "accounts/"+aid, map[string]string{"confirmName": "个人云账号"}, true)
+	r := h.request("DELETE", "accounts/"+aid, map[string]string{"password": testPassword}, true)
 	if r.Code != 200 {
 		close(release)
 		t.Fatal(r.Code, r.Body.String())

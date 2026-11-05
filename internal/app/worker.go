@@ -5,19 +5,28 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pixingzoudaiyuexing/Narbe/internal/cloud"
 	"github.com/pixingzoudaiyuexing/Narbe/internal/store"
 )
 
+const workerConcurrency = 4
+
 func (a *App) Run(ctx context.Context) {
 	defer a.stopInventories()
+	var workers sync.WaitGroup
+	for n := 0; n < workerConcurrency; n++ {
+		workers.Add(1)
+		go func() { defer workers.Done(); a.workerLoop(ctx) }()
+	}
+	workers.Wait()
+}
+func (a *App) workerLoop(ctx context.Context) {
 	for {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			return
-		default:
 		}
 		if a.runOne(ctx) {
 			continue
@@ -39,6 +48,10 @@ func (a *App) finish(id, state, progress string, op cloud.Operation, err error) 
 	if op.ResourceID != "" || op.Startup != nil {
 		result, _ = json.Marshal(op)
 	}
+	progress = operationProgress(op, progress)
+	if state == "unknown" {
+		progress += "；需只读核实最后步骤，系统不会重放此任务，也不阻止其他操作"
+	}
 	_, _ = a.S.DB.Exec("UPDATE jobs SET state=?,progress=?,result=COALESCE(?,result),error=?,updated=? WHERE id=? AND state='running'", state, progress, result, msg, store.Now(), id)
 }
 func (a *App) runOne(parent context.Context) bool {
@@ -53,16 +66,11 @@ func (a *App) runOne(parent context.Context) bool {
 	expiredCount, _ := expired.RowsAffected()
 	var id string
 	var payload []byte
-	if e := a.S.DB.QueryRow("SELECT id,payload FROM jobs WHERE state='queued' ORDER BY created,id LIMIT 1").Scan(&id, &payload); e != nil {
-		return expiredCount > 0
-	}
-	res, e := a.S.DB.Exec("UPDATE jobs SET state='running',progress='正在核实配置',updated=? WHERE id=? AND state='queued' AND created>? AND created<=?", store.Now(), id, store.Now()-int64(store.MaxQueuedAge/time.Second), store.Now())
+	// SQLite claims one eligible row atomically. No account/instance lock or
+	// separate SELECT whose result could be consumed by another worker.
+	e = a.S.DB.QueryRow("UPDATE jobs SET state='running',progress='正在核实配置',updated=? WHERE id=(SELECT id FROM jobs WHERE state='queued' AND created>? AND created<=? ORDER BY created,id LIMIT 1) AND state='queued' RETURNING id,payload", store.Now(), store.Now()-int64(store.MaxQueuedAge/time.Second), store.Now()).Scan(&id, &payload)
 	if e != nil {
-		return false
-	}
-	n, _ := res.RowsAffected()
-	if n != 1 {
-		return true
+		return expiredCount > 0
 	}
 	ctx, cancel := context.WithTimeout(parent, 25*time.Minute)
 	defer cancel()
@@ -86,13 +94,13 @@ func (a *App) runOne(parent context.Context) bool {
 		return true
 	}
 	ctx = context.WithValue(ctx, networkContext{}, ns)
-	if e = a.validate(ctx, b); e != nil {
-		a.finish(id, "failed", "配置检查未通过；未发送云操作", cloud.Operation{}, e)
+	ctx, acc, p, e := a.pinProvider(ctx, b.AccountID)
+	if e != nil {
+		a.finish(id, "failed", "云账号无法读取，未发送操作", cloud.Operation{}, e)
 		return true
 	}
-	acc, p, e := a.providerContext(ctx, b.AccountID)
-	if e != nil {
-		a.finish(id, "failed", "云账号无法读取", cloud.Operation{}, e)
+	if e = a.validate(ctx, b); e != nil {
+		a.finish(id, "failed", "配置检查未通过；未发送云操作", cloud.Operation{}, e)
 		return true
 	}
 	if b.Action == "create" && acc.Provider == "linode" && b.Spec.Key != "" {
@@ -153,7 +161,8 @@ func (a *App) runOne(parent context.Context) bool {
 		if e != nil {
 			return e
 		}
-		res, e := a.S.DB.Exec("UPDATE jobs SET result=?,updated=? WHERE id=? AND state='running'", raw, store.Now(), id)
+		progress := operationProgress(checkpoint, "正在执行云操作")
+		res, e := a.S.DB.Exec("UPDATE jobs SET result=?,progress=?,updated=? WHERE id=? AND state='running'", raw, progress, store.Now(), id)
 		if e != nil {
 			return e
 		}
@@ -231,7 +240,7 @@ func (a *App) runOne(parent context.Context) bool {
 			if op.Linode != nil {
 				progress = "云端已确认本操作，已刷新显示缓存；请查看服务器当前配置与状态"
 				if b.Action == "password-reset" {
-					progress = "指定系统磁盘root密码已重置；服务器未自动开机，需要时请手动开机"
+					progress = "指定系统磁盘root密码已重置，原有运行状态已核实"
 				}
 				if b.Action == "clone" {
 					progress = "克隆新实例及目标云防火墙配置已确认；新实例已计费且保持关机，请手动开机"

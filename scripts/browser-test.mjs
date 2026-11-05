@@ -46,9 +46,10 @@ try {
   await page.locator("#create-form select[name=plan]").selectOption("p");
   await page.locator("#create-form select[name=image]").selectOption("im");
   await page.locator("#create-form select[name=key]").selectOption("key");
-  await page
-    .locator("#create-form input[name=confirmName]")
-    .fill("browser-server");
+  assert.equal(
+    await page.locator("#create-form [name=confirmName]").count(),
+    0,
+  );
   await page.screenshot({
     path: screenshotDir + "/create-desktop.png",
     fullPage: true,
@@ -188,17 +189,8 @@ try {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.locator('[data-action-select="0"]').selectOption("delete");
   await page.locator('[data-action="0"]').click();
-  await page.locator("dialog input[name=confirmName]").fill("wrong-name");
-  await page.locator("dialog button[type=submit]").click();
-  await page
-    .getByText("请输入准确的资源名称确认操作", { exact: true })
-    .waitFor();
-  assert.equal(
-    await page.locator("dialog").evaluate((el) => el.open),
-    true,
-    "danger confirmation bypassed",
-  );
-  await page.locator("dialog input[name=confirmName]").fill("browser-server");
+  assert.equal(await page.locator("dialog [name=confirmName]").count(), 0);
+  assert.match(await page.locator("dialog").innerText(), /删除无法撤销/);
   await page.locator("dialog button[type=submit]").click();
   await page.getByRole("heading", { name: "操作任务", exact: true }).waitFor();
   await page
