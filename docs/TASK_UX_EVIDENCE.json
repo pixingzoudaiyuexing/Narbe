@@ -1,0 +1,121 @@
+{
+  "status": "CANDIDATE_PENDING_FORMAL_INDEPENDENT_REVIEW",
+  "date": "2026-10-27",
+  "branch": "codex/task-ux-followup",
+  "baseSha": "e95e0b7958e31a7372ff4384e5bf5b9a7652f5a8",
+  "testedSourceSha": "3216f1e9e5151338427c7ceee5fe0090fdebf1e4",
+  "pullRequest": "https://github.com/pixingzoudaiyuexing/Narbe/pull/2",
+  "workerLimit": 4,
+  "accountOrInstanceMutex": false,
+  "unknownReplayed": false,
+  "realCloudWrites": 0,
+  "ci": [
+    {
+      "event": "push",
+      "sourceSha": "3216f1e9e5151338427c7ceee5fe0090fdebf1e4",
+      "url": "https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/40445402068",
+      "conclusion": "success",
+      "jobs": [
+        {
+          "name": "arm64-runtime",
+          "url": "https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/40445402068/job/121995370722",
+          "conclusion": "success",
+          "stepCount": 12
+        },
+        {
+          "name": "verify",
+          "url": "https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/40445402068/job/121995371058",
+          "conclusion": "success",
+          "stepCount": 24
+        }
+      ]
+    },
+    {
+      "event": "pr",
+      "sourceSha": "3216f1e9e5151338427c7ceee5fe0090fdebf1e4",
+      "url": "https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/40445405627",
+      "conclusion": "success",
+      "jobs": [
+        {
+          "name": "arm64-runtime",
+          "url": "https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/40445405627/job/121995383174",
+          "conclusion": "success",
+          "stepCount": 12
+        },
+        {
+          "name": "verify",
+          "url": "https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/40445405627/job/121995383495",
+          "conclusion": "success",
+          "stepCount": 24
+        }
+      ]
+    }
+  ],
+  "nativePlatforms": [
+    "linux/amd64",
+    "linux/arm64"
+  ],
+  "arm64Candidate": {
+    "sizeBytes": 13334925,
+    "imageId": "sha256:96dcb2a6a8071a6277010a2427bc47819450988c0b7a8d1a959212766a5bef10",
+    "version": "task-ux-candidate",
+    "distribution": "CI local image only; not published"
+  },
+  "upgrade": {
+    "from": "ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.4@sha256:1d1f45b4a357fd609e818606e549b0ebabb98e8486fd4e4c43f09e542c548560",
+    "nativeAMD64": "PASS",
+    "nativeARM64": "PASS",
+    "data": "same disposable Compose project/volume, key, password/settings, encrypted accounts, ports/origin preserved"
+  },
+  "toolchain": {
+    "before": "go1.26.9",
+    "after": "go1.26.10",
+    "advisory": "https://pkg.go.dev/vuln/GO-2026-6809",
+    "reachableBefore": 1,
+    "reachableAfter": 0,
+    "microsoftIndexDigest": "sha256:7b55d3a69ad61f6980d0a9e3b60368a909000839fad24aef72c210bd5c8982c1"
+  },
+  "tests": {
+    "cloudPasswordFlowLeafScenarios": 46,
+    "browserTaskUXSubmissions": 14,
+    "browserRealGoHTTP": true,
+    "providerErrorFuzzExecutions": 62870,
+    "appAndPasswordMutationsKilled": 6,
+    "formalIndependentReview": "REQUIRED / PENDING"
+  },
+  "agy": {
+    "total": 1,
+    "researchScout": 0,
+    "rootCauseChallenger": 0,
+    "designChallenger": 0,
+    "testDesigner": 0,
+    "embeddedReviewer": 1,
+    "completedEmbedded": 1,
+    "failedEmbedded": 0,
+    "reReview": 0
+  },
+  "protections": {
+    "originalPR1Head": "e95e0b7958e31a7372ff4384e5bf5b9a7652f5a8",
+    "originalPR1Draft": true,
+    "mainSha": "529de7a980d1e0c182ae59a8b282eb6c91148494",
+    "releaseFilesChanged": false,
+    "ownerDeploymentChanged": false,
+    "tagOrReleaseCreated": false,
+    "officialGHCRPush": false
+  },
+  "localCleanup": {
+    "temporaryScreenshotBytesRemoved": 31794983,
+    "dockerDaemon": "unavailable / not started",
+    "localDockerBuilds": 0,
+    "localContainersCreated": 0,
+    "localVolumesCreated": 0,
+    "globalPrune": false,
+    "ownerEnvironmentChanged": false
+  },
+  "remainingGaps": [
+    "Real Linode shutdown/password-reset/boot writes and event latency/IAM/guest login not tested",
+    "Other pre-existing real four-cloud write and private StackScript IAM gaps remain",
+    "Current local Docker total cannot be queried while daemon is stopped",
+    "Old beta.5 release branch toolchain remains unchanged; assess new x509 advisory before release"
+  ]
+}

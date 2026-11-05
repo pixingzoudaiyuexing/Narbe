@@ -1,0 +1,14 @@
+/data/
+/.env
+/.local/
+/test-results/
+/playwright-report/
+node_modules/
+*.db
+*.db-shm
+*.db-wal
+*.log
+/narbe
+/coverage.out
+__pycache__/
+*.pyc
