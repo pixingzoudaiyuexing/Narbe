@@ -4,10 +4,22 @@ version=$(cat release/VERSION)
 image=ghcr.io/pixingzoudaiyuexing/narbe
 [[ "$version" = v0.1.0-beta.5 ]]
 [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
-[[ "$APP_REVIEWED_SHA" = 182e57759494c6fbcf6e3291d8259b524a9ea49a ]]
-[[ "$RELEASE_REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]]
-# This verifier was extracted from the independently reviewed commit, not HEAD.
-python3 "$RUNNER_TEMP/narbe-reviewed-source.py" --application "$APP_REVIEWED_SHA" --release "$RELEASE_REVIEWED_SHA" --head "$GITHUB_SHA" --output "$RUNNER_TEMP/narbe-source-gate.json"
+[[ "$AUTHORIZED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+[[ "$AUTHORIZED_SOURCE_SHA" = "$GITHUB_SHA" ]]
+# Extracted from the exact Owner-authorized commit; this is not an independent review.
+python3 "$RUNNER_TEMP/narbe-authorized-source.py" --owner-authorized-source "$AUTHORIZED_SOURCE_SHA" --head "$GITHUB_SHA" --output "$RUNNER_TEMP/narbe-source-gate.json"
+# The same workflow's read-only verify-ci Job validated every job/step before
+# this job obtained package permissions. Refuse mismatched downloaded evidence.
+python3 - <<'CI'
+import json,os,re
+from pathlib import Path
+record=json.loads(Path('.local/release-ci/ci.json').read_text())
+if not (record['sourceSha']==os.environ['GITHUB_SHA'] and record['conclusion']=='success'): raise SystemExit('CI evidence source or result mismatch')
+if record['workflowPath']!='.github/workflows/ci.yml': raise SystemExit('Wrong validation workflow')
+if not re.fullmatch(r'https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/[0-9]+',record['workflowUrl']): raise SystemExit('Invalid CI provenance')
+if not ({j['name'] for j in record['jobs']}=={'verify','arm64-runtime'} and len(record['jobs'])==2): raise SystemExit('Missing native CI jobs')
+if not all(j['conclusion']=='success' and j['stepCount']>0 for j in record['jobs']): raise SystemExit('Incomplete CI jobs')
+CI
 umask 077
 export DOCKER_CONFIG="$RUNNER_TEMP/narbe-publish-auth"
 mkdir -p "$DOCKER_CONFIG"
@@ -43,9 +55,10 @@ import json,os
 from pathlib import Path
 record=json.loads(Path('.local/release-output/registry.json').read_text())
 platforms={(m['platform']['os'],m['platform']['architecture']) for m in record['manifest']['manifests']}
-assert platforms=={('linux','amd64'),('linux','arm64')},platforms
+if platforms!={('linux','amd64'),('linux','arm64')}: raise SystemExit('Published index has incorrect platforms')
 source_gate=json.loads(Path(os.environ['RUNNER_TEMP'],'narbe-source-gate.json').read_text())
-record.update(deliveryEvidenceSha=source_gate['deliveryEvidenceSha'],sourceGate=source_gate,version=Path('release/VERSION').read_text().strip(),image='ghcr.io/pixingzoudaiyuexing/narbe',sourceSha=os.environ['GITHUB_SHA'],applicationReviewedSha=os.environ['APP_REVIEWED_SHA'],releaseReviewedSha=os.environ['RELEASE_REVIEWED_SHA'],workflowUrl='https://github.com/'+os.environ['GITHUB_REPOSITORY']+'/actions/runs/'+os.environ['GITHUB_RUN_ID'])
+validation=json.loads(Path('.local/release-ci/ci.json').read_text())
+record.update(releaseMode=source_gate['releaseMode'],authorizedSourceSha=source_gate['authorizedSourceSha'],applicationBaselineSha=source_gate['applicationBaselineSha'],integratedPRHead=source_gate['integratedPRHead'],ownerAuthorization=source_gate['ownerAuthorization'],automatedValidation=validation,sourceGate=source_gate,version=Path('release/VERSION').read_text().strip(),image='ghcr.io/pixingzoudaiyuexing/narbe',sourceSha=os.environ['GITHUB_SHA'],workflowUrl='https://github.com/'+os.environ['GITHUB_REPOSITORY']+'/actions/runs/'+os.environ['GITHUB_RUN_ID'])
 Path('.local/release-output/release.json').write_text(json.dumps(record,ensure_ascii=False,indent=2)+'\n')
 print('Published immutable index digest:',record['digest'])
 PY

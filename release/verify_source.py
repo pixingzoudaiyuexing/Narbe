@@ -21,6 +21,20 @@ RELEASE_FILES = frozenset({
 })
 POST_REVIEW_TEXT = frozenset({'release/README.md', 'release/NOTES.md'})
 
+# Separate, explicit Owner-authorized path. These commits have passed automated
+# validation; they are NOT relabelled as independently reviewed commits.
+OWNER_MODE = 'owner-authorized-manual-review-waiver'
+APPLICATION_BASELINE = '3216f1e9e5151338427c7ceee5fe0090fdebf1e4'
+INTEGRATED_PR_HEAD = 'ec66fd4e90f38a1940b8cdf662868bd1a5a0a70e'
+OWNER_RELEASE_FILES = frozenset({
+    '.github/workflows/release.yml', '.github/workflows/ci.yml',
+    'release/VERSION', 'release/publish.sh', 'release/bundle.py',
+    'release/test_bundle.py', 'release/verify_source.py', 'release/test_verify_source.py',
+    'release/verify_ci.py', 'release/test_verify_ci.py',
+    'release/OWNER_AUTHORIZATION.json', 'release/README.md', 'release/NOTES.md',
+    'README.md', 'docs/REVIEW.md', 'docs/BETA5_OWNER_RELEASE.md',
+})
+
 
 def evidence_files(sha):
     for path in APP_EVIDENCE_FILES:
@@ -71,6 +85,55 @@ def changed(base, head):
     return set(raw.decode().rstrip('\0').split('\0')) if raw else set()
 
 
+def clean_build_inputs(head):
+    if git('rev-parse', 'HEAD') != head:
+        raise ValueError('Checked-out HEAD differs from the release commit')
+    if subprocess.run(['git', 'diff', '--quiet', 'HEAD', '--']).returncode:
+        raise ValueError('Tracked working tree differs from the authorized release')
+    raw = subprocess.check_output(['git', 'ls-files', '--others', '-z', '--',
+                                   'cmd', 'internal', 'scripts', 'release', '.github',
+                                   'Dockerfile', '.dockerignore', 'compose.yaml',
+                                   'go.mod', 'go.sum', 'package.json', 'package-lock.json'])
+    if raw:
+        raise ValueError('Untracked executable/build input: ' +
+                         ', '.join(raw.decode().rstrip('\0').split('\0')))
+
+
+def verify_owner(authorized, head):
+    authorized, head = commit(authorized), commit(head)
+    if authorized != head:
+        raise ValueError('Owner authorization requires the exact source SHA; no later changes allowed')
+    baseline, integrated = commit(APPLICATION_BASELINE), commit(INTEGRATED_PR_HEAD)
+    ancestor(baseline, integrated)
+    ancestor(integrated, head)
+    unapproved = changed(integrated, head) - OWNER_RELEASE_FILES
+    if unapproved:
+        raise ValueError('Unauthorized application/build input changes: ' + ', '.join(sorted(unapproved)))
+    for path in OWNER_RELEASE_FILES:
+        mode = '100755' if path == 'release/publish.sh' else '100644'
+        if not git('ls-tree', head, '--', path).startswith(mode + ' blob '):
+            raise ValueError('Owner release file must retain its regular file type/mode: ' + path)
+    for path in ('release/OWNER_AUTHORIZATION.json', 'release/README.md', 'release/NOTES.md'):
+        text = subprocess.check_output(['git', 'show', head + ':' + path]).decode('utf-8')
+        if any(ord(c) < 32 and c not in '\t\r\n' for c in text):
+            raise ValueError('Owner authorization and release notes must be ordinary UTF-8 text')
+    authorization = json.loads(git('show', head + ':release/OWNER_AUTHORIZATION.json'))
+    expected = {'mode': OWNER_MODE, 'authorizedBy': 'Owner', 'authorizationDate': '2026-11-05',
+                'manualIndependentReview': 'waived-by-owner',
+                'applicationBaselineSha': baseline, 'integratedPRHead': integrated}
+    if any(authorization.get(k) != v for k, v in expected.items()):
+        raise ValueError('Explicit Owner manual-review waiver is missing or inconsistent')
+    if 'applicationReviewedSha' in authorization or 'releaseReviewedSha' in authorization:
+        raise ValueError('Owner waiver must not impersonate an independent review')
+    if git('show', head + ':release/VERSION') != VERSION:
+        raise ValueError('Release version does not match beta.5')
+    clean_build_inputs(head)
+    return {'releaseMode': OWNER_MODE, 'sourceSha': head, 'authorizedSourceSha': authorized,
+            'applicationBaselineSha': baseline, 'integratedPRHead': integrated,
+            'ownerAuthorization': authorization, 'version': VERSION,
+            'releaseConfigurationChanges': sorted(changed(integrated, head))}
+
+
 def verify(app, release, head):
     app, release, head = commit(app), commit(release), commit(head)
     evidence = commit(APPROVED_EVIDENCE)
@@ -94,23 +157,7 @@ def verify(app, release, head):
         release_files(sha)
         if git('show', sha + ':release/VERSION') != VERSION:
             raise ValueError('Release version does not match beta.5')
-    if git('rev-parse', 'HEAD') != head:
-        raise ValueError('Checked-out HEAD differs from the release commit')
-    if subprocess.run(['git', 'diff', '--quiet', 'HEAD', '--']).returncode:
-        raise ValueError('Tracked working tree differs from the reviewed release')
-    # CI downloads artifacts only under ignored .local/. Reject source injection.
-    # Include ignored inputs too: an ignored asset can still enter go:embed.
-    # Restrict enumeration to protected paths so node_modules/.local stay out.
-    raw = subprocess.check_output(['git', 'ls-files', '--others', '-z', '--',
-                                   'cmd', 'internal', 'scripts', 'release', '.github',
-                                   'Dockerfile', '.dockerignore', 'compose.yaml',
-                                   'go.mod', 'go.sum', 'package.json', 'package-lock.json'])
-    untracked = raw.decode().rstrip('\0').split('\0') if raw else []
-    for path in untracked:
-        if path.startswith(('cmd/', 'internal/', 'scripts/', 'release/', '.github/')) or path in {
-            'Dockerfile', '.dockerignore', 'compose.yaml', 'go.mod', 'go.sum', 'package.json', 'package-lock.json',
-        }:
-            raise ValueError('Untracked executable/build input: ' + path)
+    clean_build_inputs(head)
     return {'applicationReviewedSha': app, 'releaseReviewedSha': release,
             'deliveryEvidenceSha': evidence,
             'sourceSha': head, 'version': VERSION,
@@ -121,13 +168,19 @@ def verify(app, release, head):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--application', required=True)
-    parser.add_argument('--release', required=True)
+    parser.add_argument('--application')
+    parser.add_argument('--release')
+    parser.add_argument('--owner-authorized-source')
     parser.add_argument('--head', required=True)
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
     try:
-        record = verify(args.application, args.release, args.head)
+        if args.owner_authorized_source is not None:
+            if args.application is not None or args.release is not None:
+                raise ValueError('Owner waiver and independent-review paths cannot be mixed')
+            record = verify_owner(args.owner_authorized_source, args.head)
+        else:
+            record = verify(args.application, args.release, args.head)
     except (ValueError, subprocess.CalledProcessError, UnicodeError) as error:
         raise SystemExit('Release source gate rejected: ' + str(error)) from None
     if args.output:

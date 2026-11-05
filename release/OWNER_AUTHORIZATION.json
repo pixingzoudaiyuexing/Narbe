@@ -1,0 +1,12 @@
+{
+  "mode": "owner-authorized-manual-review-waiver",
+  "authorizedBy": "Owner",
+  "authorizationDate": "2026-11-05",
+  "manualIndependentReview": "waived-by-owner",
+  "applicationBaselineSha": "3216f1e9e5151338427c7ceee5fe0090fdebf1e4",
+  "integratedPRHead": "ec66fd4e90f38a1940b8cdf662868bd1a5a0a70e",
+  "integrationMergeSha": "8956a57830f0a853ccf69dc7326eb22149d07193",
+  "ownerInstruction": "不再进行额外人工独立审核。完成必要自动化验证后，直接发布 beta.5，让 Owner 更新使用。",
+  "sourceShaPolicy": "NARBE_BETA5_OWNER_AUTHORIZED_SHA must equal the exact release source commit. Its complete push CI and both native builds must succeed before publication.",
+  "scope": "Integrate PR #2 into the beta.5 development branch and publish v0.1.0-beta.5 as a test Pre-release. No main merge, Owner deployment changes or real cloud writes."
+}

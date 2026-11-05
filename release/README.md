@@ -1,6 +1,6 @@
 # Narbe v0.1.0-beta.5 安装、升级与回滚
 
-**发行准备稿：尚未发布，下面的 beta.5 下载地址需等待正式发行后才可用。** 应用正式审核 PASS WITH CONDITIONS，应用 SHA 固定 `182e57759494c6fbcf6e3291d8259b524a9ea49a`，已审交付证据 HEAD 为 `800c5443cb5fb913e30fe71467642c6fdfa87b00`。发行配置独立复审 REQUIRED / PENDING，本阶段不设置两个 beta.5 审核变量，不执行 GHCR／Tag／Release 发布。
+**Owner 已授权，发行执行中；是否已发布以实际 GitHub Pre-release、成功工作流和公开附件为准。** Owner 于 2026-11-05 明确免除本轮额外人工独立复审；本次整合及发行不宣称 Independent Reviewer PASS。最终安装包固定精确源码 SHA，并要求同 SHA 的完整 CI、原生双架构运行、回拉及升级验收成功。
 
 Go + SQLite、单个非 root 容器，支持 Linux AMD64 / ARM64 和 AWS、Azure、Linode、DigitalOcean。需要 Docker Engine、Compose v2、Bash、curl、tar、sha256sum；服务器无需 Go、Node.js、MySQL 或 Redis，不自动修改系统 Docker。测试版不宣称生产稳定。
 
@@ -29,7 +29,7 @@ tar -xzf narbe-v0.1.0-beta.5-install.tar.gz
 
 默认拒绝环回、私网、Metadata 和保留地址。确需私网代理时，服务器管理员必须在自己的 Compose `environment` 中显式加入 `NARBE_PROXY_ALLOW_PRIVATE` 精确 RFC1918/ULA IP:端口授权，例如 `10.2.3.4:8443`；禁止任意网段、loopback 或 Metadata。仅在 `.env` 增加未声明变量不会自动注入容器。本安装包不默认开放任何私网代理地址。
 
-Linode 重装支持不提交新脚本、Shell、Cloud-init、已有 StackScript 和动态 UDF。会删除所有磁盘及配置，必须备份并确认名称；省略新 Metadata 不保证旧 User Data 延续。脚本/UDF 绑定确认、加密持久化，不改变原防火墙和接口。API 受理、开机不等于脚本执行成功；可登录来宾检查 `/var/log/cloud-init.log`、`/var/log/cloud-init-output.log`，StackScript 依脚本自身日志。现有四云创建脚本能力保留，Azure Windows 本版仍不提供自动初始化脚本执行。
+Linode 重装支持不提交新脚本、Shell、Cloud-init、已有 StackScript 和动态 UDF。会删除所有磁盘及配置，必须备份并点击一次明确风险确认；省略新 Metadata 不保证旧 User Data 延续。脚本/UDF 绑定确认、加密持久化，不改变原防火墙和接口。API 受理、开机不等于脚本执行成功；可登录来宾检查 `/var/log/cloud-init.log`、`/var/log/cloud-init-output.log`，StackScript 依脚本自身日志。现有四云创建脚本能力保留，Azure Windows 本版仍不提供自动初始化脚本执行。
 
 真实云账号经生产代理的授权查询、第三方代理兼容、Linode Rebuild 后 Metadata / Cloud-init 执行及私人 StackScript IAM 尚未真实 E2E。合同替身、匿名 400/401、浏览器和 Docker 测试不能替代真实云验证；九项高级操作与原 CloudPanel 完整覆盖旧缺口继续保留。脚本权限较高，不要硬编码 Token 或私钥。新建 Linode 默认全部放行云防火墙，不改 OS 防火墙或已有绑定；Azure VM 删除后关联资源可能继续计费。
 
@@ -49,39 +49,87 @@ docker compose --env-file .env --env-file image.env -f compose.yaml restart
 
 ## beta.4 → beta.5（正式发行后）
 
-先在**实际旧安装目录**执行 `pwd -P`、上面的 `ps`，用容器 Inspect 核实 `com.docker.compose.project`、工作目录、`/data` 的 Volume 和配置。先处理 queued/running 任务；重启会取消 queued，running/unknown 仍需核实，不能借升级重放云写。
+**不要把新包解压覆盖旧目录，也不要在新目录启动一个不同项目。** 只更新原目录的 `image.env`，继续使用原 Compose、`.env`、secrets、项目名和数据 Volume；这样保留端口、Origin、管理员密码及加密云账号。执行前先处理 queued/running，结果未知的云写必须核实；重启取消 queued，不自动重放 unknown。
 
-停止应用后完整备份 `/data`（SQLite、WAL、master.key 一起）和部署文件、密码文件；备份须保密。确认实际项目和 Volume 后，在新目录下载、验证 beta.5 安装包，复制原 `.env` 与密码文件，保留原 Compose 项目、数据 Volume、端口和 Origin。自定义 Compose 必须逐项保留配置，仅更新经验证的 `image.env` 镜像引用；不要用包内默认配置覆盖未知改动或创建空 Volume 冒充升级。
-
-标准未自定义安装可在核实后按以下步骤操作；路径必须换成实际绝对路径：
+下面命令适用于安装包原有的单一 `compose.yaml`，会要求输入真实目录和现有容器 ID，核对项目／Volume，并停止后完整备份。它不假定 Owner 的路径。**存在自定义多个 Compose 文件、额外 env-file、`COMPOSE_*` 环境变量或 bind-mount 数据目录时，命令会拒绝；应保留原部署命令的全部参数执行等价流程，不能套用默认文件覆盖未知配置。** 自定义 Compose 必须实际使用 `NARBE_IMAGE`；硬编码 image 时须由操作者只修改镜像引用并核对最终渲染配置。
 
 ```bash
 (
 set -euo pipefail
-old_dir=/替换为实际/beta4安装目录
-new_dir=/替换为新的/beta5目录
-backup_dir=/替换为新的/私有升级前备份目录
+umask 077
+read -r -p '实际 beta.4 安装目录（绝对路径）: ' old_dir
 cd "$old_dir"
-docker compose --env-file .env --env-file image.env -f compose.yaml stop
-mkdir -m 700 "$backup_dir"
-docker compose --env-file .env --env-file image.env -f compose.yaml cp narbe:/data "$backup_dir/data"
-cp .env image.env compose.yaml "$backup_dir/"
-mkdir -m 700 "$backup_dir/secrets"
-cp secrets/admin-password "$backup_dir/secrets/admin-password"
-mkdir -m 700 "$new_dir" && cd "$new_dir"
-curl -fL --retry 3 -o narbe-v0.1.0-beta.5-install.tar.gz https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.5/narbe-v0.1.0-beta.5-install.tar.gz
-curl -fL --retry 3 -o SHA256SUMS https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.5/SHA256SUMS
-sha256sum -c SHA256SUMS
-tar -xzf narbe-v0.1.0-beta.5-install.tar.gz
-cp "$old_dir/.env" .env
-mkdir -m 700 secrets
-cp "$old_dir/secrets/admin-password" secrets/admin-password
-./install.sh
-docker compose --env-file .env --env-file image.env -f compose.yaml ps
+old_dir=$(pwd -P)
+test -f .env && test -f image.env && test -f compose.yaml
+test ! -L image.env
+# 未知 Compose 环境可能更换项目、配置或覆盖顺序，先失败关闭。
+if env | grep -q '^COMPOSE_'; then
+  echo '检测到 COMPOSE_*；请使用已核实的原部署命令进行等价升级。' >&2; exit 1
+fi
+docker ps -a --filter label=com.docker.compose.service=narbe --format 'table {{.ID}}	{{.Names}}	{{.Image}}'
+read -r -p '上方现有 beta.4 Narbe 容器 ID: ' selected
+container=$(docker inspect --format '{{.Id}}' "$selected")
+project=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "$container")
+workdir=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$container")
+configs=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$container")
+test -n "$project" && test "$workdir" = "$old_dir"
+if test "$configs" != "$old_dir/compose.yaml"; then
+  echo '不是单一标准 compose.yaml；保留原配置文件与所有参数，不自动改动。' >&2; exit 1
+fi
+compose=(docker compose --project-directory "$old_dir" -p "$project" --env-file .env --env-file image.env -f compose.yaml)
+actual=$("${compose[@]}" ps -aq narbe)
+test -n "$actual" && test "$(docker inspect --format '{{.Id}}' "$actual")" = "$container"
+volume=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{if eq .Type "volume"}}{{.Name}}{{end}}{{end}}{{end}}' "$container")
+test -n "$volume"
+printf '原目录=%s\n项目=%s\n数据 Volume=%s\n' "$old_dir" "$project" "$volume"
+"${compose[@]}" ps
+# 只显示非敏感的 Origin；不打印密码、数据库或完整环境。
+docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container" | sed -n '/^NARBE_ORIGIN=/p'
+read -r -p '已核实上述身份，且已处理运行中／未知云任务？输入 yes: ' confirmed
+test "$confirmed" = yes
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT
+curl -fL --retry 3 -o "$stage/narbe-v0.1.0-beta.5-install.tar.gz" https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.5/narbe-v0.1.0-beta.5-install.tar.gz
+curl -fL --retry 3 -o "$stage/SHA256SUMS" https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.5/SHA256SUMS
+(cd "$stage" && sha256sum -c SHA256SUMS)
+tar -xzf "$stage/narbe-v0.1.0-beta.5-install.tar.gz" -C "$stage" image.env
+test "$(wc -l < "$stage/image.env")" -eq 1
+grep -Eq '^NARBE_IMAGE=ghcr[.]io/pixingzoudaiyuexing/narbe:v0[.]1[.]0-beta[.]5@sha256:[0-9a-f]{64}$' "$stage/image.env"
+# 先拉取已验包中的不可变镜像；此时仍未更改原配置。
+image=$(sed -n 's/^NARBE_IMAGE=//p' "$stage/image.env")
+docker pull "$image"
+backup=$(mktemp -d "$(dirname "$old_dir")/narbe-before-beta5-$(date +%Y%m%d-%H%M%S)-XXXXXX")
+chmod 700 "$backup"
+"${compose[@]}" stop narbe
+"${compose[@]}" cp narbe:/data "$backup/data"
+cp -a .env image.env compose.yaml secrets "$backup/"
+printf '完整升级前备份：%s\n' "$backup"
+# 不改 Compose、.env、secrets 或正式 Volume，只替换镜像锁。
+cp "$stage/image.env" image.env
+rendered=$("${compose[@]}" config --images)
+if test "$rendered" != "$image"; then
+  cp "$backup/image.env" image.env
+  echo '原 Compose 未采用预期镜像；已还原镜像锁，服务保持停止，请核实自定义配置。' >&2; exit 1
+fi
+"${compose[@]}" up -d --no-build --wait narbe
+new_container=$("${compose[@]}" ps -q narbe)
+new_volume=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{if eq .Type "volume"}}{{.Name}}{{end}}{{end}}{{end}}' "$new_container")
+test "$new_volume" = "$volume"
+"${compose[@]}" ps
+"${compose[@]}" logs --tail=100 narbe
+printf '请用原管理员密码登录，核对云账号、端口与 Origin。保留升级前备份：%s\n' "$backup"
 )
 ```
 
-核对原密码登录、账号列表、SQLite、master.key、项目/Volume、端口和 Origin；验证前不删除旧镜像或升级前备份。密码文件父目录保持 0700，单文件 0644 只读挂载便于 UID 65532 读取；不得公开上传配置、密码、数据库或 key。
+命令只拉取发布镜像，不创建／重装／删除云资源。失败时不要删除备份或 Volume；停止后的失败不会自动启动另一版本，更不会自动重试云任务。升级完成前不删除 beta.4 镜像。密码目录保持 0700、挂载文件按原部署权限保留，不公开上传配置、密码、数据库或 key。
+
+## 并发、自动改密和密码输入
+
+四个 Worker 并发运行，unknown 不锁账号。普通操作直接提交，删除／重装只保留一次明确风险按钮；同请求 ID 幂等、Session、CSRF、资源和参数绑定保持。相同服务器的并发操作由云 API 判断，事件归属无法唯一核实时保守 unknown，不添加本地服务器互斥。
+
+Linode root 密码重置自动核实实时状态，必要时关机并确认，重置同一目标盘并确认密码事件，再恢复原有运行状态。原本关机则不自动开机，未知步骤停止后续风险写；任务详情展示各阶段和核实建议。云新密码默认明文、可用眼睛按钮隐藏，不改变强度校验、密文任务及结果脱敏。默认可见存在旁观风险，不应共享屏幕输入真实密码。
+
+**真实 Linode 自动改密流程尚未云端 E2E。** 隔离替身证明行为与异常路径，不能替代实际账号权限、事件形态和云时延验收。
 
 ## 回滚限制
 
@@ -95,4 +143,4 @@ docker compose --env-file .env --env-file image.env -f compose.yaml ps
 
 正式安装包名称 `narbe-v0.1.0-beta.5-install.tar.gz`，附件包括 `SHA256SUMS` 和 `release-evidence.json`。镜像为 `ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.5@sha256:实际发行digest`，不能使用占位符安装。
 
-包内 `release.json` 与外部证据记录应用审核 SHA、已审交付证据 SHA、发行审核 SHA、实际源码 SHA、Index／两架构 Manifest Digest、Actions URL 及来源门禁分类。发行审核后仅允许 release/README.md、release/NOTES.md 普通文案后补；未审核执行差异失败关闭。实际安装可用性以完成正式复审后的工作流、公开镜像和 Release 附件验收为准。
+包内 `release.json` 与外部证据明确记录 `releaseMode=owner-authorized-manual-review-waiver`、Owner 2026-11-05 免人工复审授权、实际 `sourceSha`／`authorizedSourceSha`、已验证应用基线 `3216f1e9e5151338427c7ceee5fe0090fdebf1e4`、整合 PR #2 HEAD `ec66fd4e90f38a1940b8cdf662868bd1a5a0a70e`、同源码成功 CI、Index／两架构 Manifest Digest 和发行 Actions URL。新源码不填写虚假的 `applicationReviewedSha` 或 `releaseReviewedSha`。构建只接受固定授权源码且无额外／忽略构建输入，GHCR 写权限受来源和成功测试约束。公开可安装状态以成功发行工作流、公开镜像和实际可下载附件为准。

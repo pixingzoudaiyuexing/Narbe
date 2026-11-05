@@ -264,71 +264,167 @@ class SourceGate(unittest.TestCase):
             Path(name).unlink()
 
 
+class OwnerSourceGate(unittest.TestCase):
+    cleanup = SourceGate.cleanup
+    run_git = SourceGate.run_git
+    write = SourceGate.write
+    save = SourceGate.save
+
+    def setUp(self):
+        SourceGate.setUp(self)
+        self.original_baseline = gate.APPLICATION_BASELINE
+        self.original_pr = gate.INTEGRATED_PR_HEAD
+        gate.APPLICATION_BASELINE, gate.INTEGRATED_PR_HEAD = self.app, self.release
+        self.addCleanup(setattr, gate, 'APPLICATION_BASELINE', self.original_baseline)
+        self.addCleanup(setattr, gate, 'INTEGRATED_PR_HEAD', self.original_pr)
+        for path in gate.OWNER_RELEASE_FILES:
+            self.write(path, 'Owner release fixture\n')
+        Path('release/publish.sh').chmod(0o755)
+        self.write('release/VERSION', gate.VERSION+'\n')
+        self.auth={'mode':gate.OWNER_MODE,'authorizedBy':'Owner','authorizationDate':'2026-11-05',
+                   'manualIndependentReview':'waived-by-owner','applicationBaselineSha':self.app,
+                   'integratedPRHead':self.release}
+        import json
+        self.write('release/OWNER_AUTHORIZATION.json', json.dumps(self.auth))
+        self.write('release/verify_source.py', VERIFIER.replace(self.original_baseline,self.app).replace(self.original_pr,self.release))
+        self.authorized=self.save()
+
+    def owner(self, head=None, authorized=None):
+        return gate.verify_owner(authorized or self.authorized, head or self.run_git('rev-parse','HEAD'))
+
+    def test_owner_waiver_passes_without_claiming_independent_review(self):
+        record=self.owner()
+        self.assertEqual(record['sourceSha'],self.authorized)
+        self.assertEqual(record['releaseMode'],gate.OWNER_MODE)
+        self.assertEqual(record['ownerAuthorization']['manualIndependentReview'],'waived-by-owner')
+        self.assertNotIn('applicationReviewedSha',record)
+        self.assertNotIn('releaseReviewedSha',record)
+
+    def test_even_later_notes_need_new_exact_source_and_new_ci(self):
+        self.write('release/NOTES.md','later text\n');head=self.save()
+        with self.assertRaisesRegex(ValueError,'exact source SHA'):self.owner(head)
+        self.assertEqual(self.owner(head,authorized=head)['sourceSha'],head)
+
+    def test_application_or_nonallowlisted_input_cannot_enter_owner_path(self):
+        for path in ['cmd/narbe/main.go','internal/cloud/linode.go','Dockerfile','go.mod','go.sum','.dockerignore',
+                     'scripts/test_runtime.py','internal/web/assets/extra.js','docs/arbitrary.py','release/install.sh']:
+            with self.subTest(path=path):
+                self.run_git('checkout','-q','--detach',self.authorized)
+                self.write(path,'injected\n');head=self.save()
+                with self.assertRaisesRegex(ValueError,'Unauthorized application'):self.owner(head,authorized=head)
+
+    def test_invalid_sha_ancestry_and_old_review_sha_cannot_authorize(self):
+        for value in ['', 'main', 'A'*40, 'f'*40, self.run_git('rev-parse','HEAD^{tree}')]:
+            with self.assertRaises((ValueError,subprocess.CalledProcessError)):gate.verify_owner(value,self.authorized)
+        with self.assertRaisesRegex(ValueError,'exact source SHA'):gate.verify_owner(self.app,self.authorized)
+        self.run_git('checkout','-q','--detach',self.app)
+        self.write('release/NOTES.md','sibling\n');sibling=self.save()
+        with self.assertRaisesRegex(ValueError,'ancestor'):self.owner(sibling,authorized=sibling)
+
+    def test_owner_file_modes_and_false_manual_pass_are_rejected(self):
+        import json
+        for path in ['release/OWNER_AUTHORIZATION.json','release/NOTES.md','release/verify_source.py','.github/workflows/release.yml']:
+            for kind in ['symlink','mode','delete']:
+                with self.subTest(path=path,kind=kind):
+                    self.run_git('checkout','-q','--detach',self.authorized)
+                    p=Path(path)
+                    if kind=='symlink':p.unlink();p.symlink_to('README.md')
+                    elif kind=='mode':p.chmod(0o755)
+                    else:p.unlink()
+                    head=self.save()
+                    with self.assertRaisesRegex(ValueError,'regular file type/mode'):self.owner(head,authorized=head)
+        for key,value in [('manualIndependentReview','PASS'),('authorizedBy','Reviewer'),('applicationReviewedSha',self.app)]:
+            self.run_git('checkout','-q','--detach',self.authorized)
+            auth=dict(self.auth);auth[key]=value
+            self.write('release/OWNER_AUTHORIZATION.json',json.dumps(auth));head=self.save()
+            with self.assertRaises(ValueError):self.owner(head,authorized=head)
+
+    def test_dirty_ignored_and_untracked_owner_inputs_are_rejected(self):
+        self.write('release/verify_source.py','dirty script\n')
+        with self.assertRaisesRegex(ValueError,'working tree'):self.owner()
+        self.run_git('checkout','--','release/verify_source.py')
+        Path('.git/info/exclude').write_text('*.log\n')
+        for path in ['internal/web/assets/injected.log','release/injected.log','scripts/injected.py']:
+            self.write(path,'injection')
+            with self.assertRaisesRegex(ValueError,'Untracked'):self.owner()
+            Path(path).unlink()
+
+    def test_authorized_verifier_cli_rejects_modified_source_without_executing_it(self):
+        trusted=self.run_git('show',self.authorized+':release/verify_source.py')
+        with tempfile.TemporaryDirectory() as tmp:
+            script=Path(tmp)/'authorized.py';script.write_text(trusted)
+            def run(head):return subprocess.run(['python3',str(script),'--owner-authorized-source',self.authorized,'--head',head],capture_output=True,text=True)
+            self.assertEqual(run(self.authorized).returncode,0)
+            self.write('release/verify_source.py',"from pathlib import Path\nPath('UNAUTHORIZED_EXECUTED').touch()\n")
+            head=self.save();self.assertNotEqual(run(head).returncode,0)
+            self.assertFalse(Path('UNAUTHORIZED_EXECUTED').exists())
+
+
 class WorkflowContract(unittest.TestCase):
-    def test_publish_missing_beta5_review_values_stops_before_any_registry_command(self):
+    def test_publish_missing_owner_pin_and_old_review_values_stop_before_registry(self):
         with tempfile.TemporaryDirectory() as tmp:
             marker=Path(tmp)/'registry-called'
             docker=Path(tmp)/'docker';docker.write_text('#!/bin/sh\ntouch "'+str(marker)+'"\nexit 0\n');docker.chmod(0o755)
-            for overrides in [{},{'APP_REVIEWED_SHA':gate.APPROVED_APPLICATION},
-                              {'APP_REVIEWED_SHA':gate.APPROVED_APPLICATION,'RELEASE_REVIEWED_SHA':''},
-                              {'RELEASE_REVIEWED_SHA':'f'*40},
-                              {'APP_REVIEWED_SHA':'ebc933f2842be343ffcb6eefd240cdab54ef1b4d','RELEASE_REVIEWED_SHA':'5432c681bc66ec5d8f46914ad5cbc7dbd9fd3a04'}]:
-                env={'PATH':tmp+os.pathsep+os.environ['PATH'],'GITHUB_SHA':gate.APPROVED_APPLICATION,'RUNNER_TEMP':tmp,'NARBE_BETA4_APP_REVIEWED_SHA':'ebc933f2842be343ffcb6eefd240cdab54ef1b4d','NARBE_BETA4_RELEASE_REVIEWED_SHA':'5432c681bc66ec5d8f46914ad5cbc7dbd9fd3a04',**overrides}
+            for overrides in [{},{'AUTHORIZED_SOURCE_SHA':''},{'AUTHORIZED_SOURCE_SHA':'f'*40},
+                              {'APP_REVIEWED_SHA':gate.APPROVED_APPLICATION,'RELEASE_REVIEWED_SHA':gate.APPROVED_EVIDENCE}]:
+                env={'PATH':tmp+os.pathsep+os.environ['PATH'],'GITHUB_SHA':gate.APPROVED_APPLICATION,'RUNNER_TEMP':tmp,**overrides}
                 result=subprocess.run(['bash',str(ROOT/'release/publish.sh')],cwd=ROOT,env=env,capture_output=True)
-                self.assertNotEqual(result.returncode,0)
-                self.assertFalse(marker.exists())
+                self.assertNotEqual(result.returncode,0);self.assertFalse(marker.exists())
 
-    def test_application_anchor_is_the_exact_formally_approved_head(self):
+    def test_historical_anchors_not_relabelled_and_owner_baseline_is_exact(self):
         self.assertEqual(gate.APPROVED_APPLICATION,'182e57759494c6fbcf6e3291d8259b524a9ea49a')
-        self.assertEqual(gate.APPROVED_EVIDENCE,'800c5443cb5fb913e30fe71467642c6fdfa87b00')
+        self.assertEqual(gate.APPLICATION_BASELINE,'3216f1e9e5151338427c7ceee5fe0090fdebf1e4')
+        self.assertEqual(gate.INTEGRATED_PR_HEAD,'ec66fd4e90f38a1940b8cdf662868bd1a5a0a70e')
 
-    def test_old_review_variable_cannot_enable_new_release(self):
-        self.assertNotIn('NARBE_BETA2_REVIEWED_SHA', WORKFLOW)
-        self.assertNotIn('NARBE_BETA3_', WORKFLOW)
-        self.assertNotIn('NARBE_BETA4_', WORKFLOW)
-        self.assertIn('vars.NARBE_BETA5_APP_REVIEWED_SHA', WORKFLOW)
-        self.assertIn('vars.NARBE_BETA5_RELEASE_REVIEWED_SHA', WORKFLOW)
-        self.assertIn('narbe-v0.1.0-beta.5-release', WORKFLOW)
-        self.assertIn("vars.NARBE_BETA5_APP_REVIEWED_SHA != '' && vars.NARBE_BETA5_RELEASE_REVIEWED_SHA != ''",WORKFLOW)
+    def test_old_review_variables_cannot_enable_owner_release(self):
+        self.assertNotIn('_REVIEWED_SHA',WORKFLOW)
+        self.assertIn('vars.NARBE_BETA5_OWNER_AUTHORIZED_SHA',WORKFLOW)
+        self.assertIn("vars.NARBE_BETA5_OWNER_AUTHORIZED_SHA != ''",WORKFLOW)
+        self.assertIn('test "$AUTHORIZED_SOURCE_SHA" = "$GITHUB_SHA"',WORKFLOW)
+        self.assertIn('narbe-v0.1.0-beta.5-release',WORKFLOW)
 
-    def test_package_write_job_waits_for_unprivileged_gate_and_both_builds(self):
-        gate_job=WORKFLOW.split('  source-gate:',1)[1].split('  build:',1)[0]
-        self.assertIn('contents: read',gate_job)
-        self.assertNotIn('packages: write',gate_job)
+    def test_package_write_waits_for_source_exact_ci_and_both_native_builds(self):
         publish=WORKFLOW.split('  publish:',1)[1].split('  verify-published:',1)[0]
-        self.assertIn('needs: [source-gate, build]',publish)
-        self.assertIn("if: needs.source-gate.result == 'success' && needs.build.result == 'success' && needs.source-gate.outputs.approved == 'true'",publish)
+        self.assertIn('needs: [source-gate, verify-ci, build]',publish)
+        for dependency in ['source-gate','verify-ci','build']:
+            self.assertIn("needs."+dependency+".result == 'success'",publish)
+        self.assertIn("needs.source-gate.outputs.approved == 'true'",publish)
         self.assertEqual(WORKFLOW.count('packages: write'),1)
-        self.assertLess(publish.index('Recheck reviewed scripts'),publish.index('GH_TOKEN:'))
+        self.assertLess(publish.index('Recheck Owner-authorized scripts'),publish.index('GH_TOKEN:'))
+        ci=WORKFLOW.split('  verify-ci:',1)[1].split('  build:',1)[0]
+        self.assertIn('actions: read',ci);self.assertNotIn('packages: write',ci)
+        self.assertIn('release/verify_ci.py --sha "$GITHUB_SHA"',ci)
 
-    def test_reviewed_verifier_is_extracted_before_token_and_login(self):
-        self.assertIn('git show "$RELEASE_REVIEWED_SHA:release/verify_source.py"',WORKFLOW)
+    def test_authorized_verifier_extracted_before_login_and_ci_evidence_checked(self):
+        self.assertIn('git show "$AUTHORIZED_SOURCE_SHA:release/verify_source.py"',WORKFLOW)
         self.assertNotIn('python3 release/verify_source.py',WORKFLOW)
-        self.assertLess(PUBLISH.index('narbe-reviewed-source.py'),PUBLISH.index('docker login'))
-        self.assertIn('applicationReviewedSha=',PUBLISH)
-        self.assertIn('releaseReviewedSha=',PUBLISH)
+        self.assertLess(PUBLISH.index('narbe-authorized-source.py'),PUBLISH.index('docker login'))
+        self.assertLess(PUBLISH.index("record['sourceSha']==os.environ['GITHUB_SHA']"),PUBLISH.index('docker login'))
+        self.assertIn('ownerAuthorization=',PUBLISH)
+        self.assertIn('automatedValidation=',PUBLISH)
+        self.assertNotIn('applicationReviewedSha=',PUBLISH)
+        self.assertNotIn('releaseReviewedSha=',PUBLISH)
         self.assertNotIn('"$image:latest"',PUBLISH)
 
-    def test_native_published_installs_keep_pinned_previous_release_upgrade(self):
+    def test_native_published_installs_pull_anonymously_and_keep_beta4_upgrade(self):
         self.assertIn('ubuntu-24.04-arm',WORKFLOW)
         self.assertIn('amd64:x86_64|arm64:aarch64',WORKFLOW)
         self.assertIn('release/test_install.py --image "$image"',WORKFLOW)
-        self.assertIn('scripts/test_upgrade.py --old-image',WORKFLOW)
         self.assertIn('v0.1.0-beta.4@sha256:1d1f45b4',WORKFLOW)
-        self.assertNotIn('v0.1.0-beta.3@',WORKFLOW)
+        pulls=WORKFLOW.split('  verify-published:',1)[1].split('  bundle:',1)[0]
+        self.assertNotIn('docker login',pulls);self.assertNotIn('GH_TOKEN',pulls)
+        self.assertIn('test ! -e "$DOCKER_CONFIG/config.json"',pulls)
 
-    def test_failed_release_pipeline_cannot_create_git_tag_or_github_release(self):
-        self.assertNotIn('contents: write', WORKFLOW)
-        self.assertNotRegex(WORKFLOW + PUBLISH, r'\b(?:gh\s+release|git\s+tag|git\s+push)\b')
-        self.assertIn('needs: verify-published', WORKFLOW)
-        self.assertIn('python3 release/bundle.py', WORKFLOW)
+    def test_failed_pipeline_cannot_create_git_tag_or_github_release(self):
+        self.assertNotIn('contents: write',WORKFLOW)
+        self.assertNotRegex(WORKFLOW+PUBLISH,r'\b(?:gh\s+release|git\s+tag|git\s+push)\b')
+        self.assertIn('needs: verify-published',WORKFLOW)
+        self.assertIn('python3 release/bundle.py',WORKFLOW)
 
-    def test_all_actions_are_sha_pinned_and_release_cannot_run_on_pull_request(self):
+    def test_actions_pinned_and_only_push_release_entry(self):
         import re
-        for action in re.findall(r'uses:\s+(\S+)', WORKFLOW):
-            self.assertRegex(action, r'^[\w/-]+@[a-f0-9]{40}$')
-        self.assertNotIn('pull_request', WORKFLOW)
-        self.assertNotIn('workflow_dispatch', WORKFLOW)
+        for action in re.findall(r'uses:\s+(\S+)',WORKFLOW):self.assertRegex(action,r'^[\w/-]+@[a-f0-9]{40}$')
+        self.assertNotIn('pull_request',WORKFLOW);self.assertNotIn('workflow_dispatch',WORKFLOW)
 
 
 if __name__ == '__main__':

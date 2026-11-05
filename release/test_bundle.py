@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import importlib.util
 import hashlib
+import copy
 import json
 import subprocess
 from pathlib import Path
@@ -47,6 +48,66 @@ class Packaging(unittest.TestCase):
                     result=subprocess.run(['python3',str(root/'bundle.py'),str(p),str(tmp/'out')],cwd=root.parent,capture_output=True)
                     self.assertNotEqual(result.returncode,0)
                     self.assertFalse((tmp/'out').exists())
+    def owner_record(self):
+        r=self.record()
+        for key in ('applicationReviewedSha','releaseReviewedSha','deliveryEvidenceSha'):
+            del r[key]
+        r.update(releaseMode='owner-authorized-manual-review-waiver',authorizedSourceSha=r['sourceSha'],applicationBaselineSha='3216f1e9e5151338427c7ceee5fe0090fdebf1e4',integratedPRHead='ec66fd4e90f38a1940b8cdf662868bd1a5a0a70e')
+        r['ownerAuthorization']={'mode':r['releaseMode'],'authorizedBy':'Owner','authorizationDate':'2026-11-05','manualIndependentReview':'waived-by-owner','applicationBaselineSha':r['applicationBaselineSha'],'integratedPRHead':r['integratedPRHead']}
+        r['sourceGate']={key:r[key] for key in ('releaseMode','sourceSha','authorizedSourceSha','applicationBaselineSha','integratedPRHead','ownerAuthorization')}
+        r['automatedValidation']={'sourceSha':r['sourceSha'],'conclusion':'success','workflowUrl':'https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/122','jobs':[{'name':name,'conclusion':'success','stepCount':count,'url':'https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/122/job/'+str(job)} for name,count,job in [('verify',30,1),('arm64-runtime',13,2)]]}
+        return r
+
+    def run_record(self,record):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp=Path(tmp);p=tmp/'record.json';p.write_text(json.dumps(record))
+            result=subprocess.run(['python3',str(root/'bundle.py'),str(p),str(tmp/'out')],cwd=root.parent,capture_output=True)
+            return result.returncode,(tmp/'out').exists(),result.stderr.decode()
+
+    def test_owner_waiver_bundle_records_exact_source_and_truthful_authorization(self):
+        code,exists,error=self.run_record(self.owner_record())
+        self.assertEqual(code,0,error)
+        self.assertTrue(exists)
+
+    def test_owner_waiver_rejects_forged_source_or_independent_review_claim(self):
+        valid=self.owner_record()
+        variants=[]
+        for key,value in [('sourceSha','main'),('authorizedSourceSha','c'*40),('applicationBaselineSha','b'*40),('integratedPRHead','b'*40),('releaseMode','independently-reviewed'),('applicationReviewedSha','b'*40),('releaseReviewedSha','b'*40),('independentReview',{'conclusion':'PASS'}),('manualIndependentReview','PASS'),('digest','sha256:bad'),('version','v0.1.0-beta.4'),('image','ghcr.io/other/narbe'),('workflowUrl','https://githubXcom/pixingzoudaiyuexing/Narbe/actions/runs/123'),('manifest',{'manifests':[]})]:
+            r=copy.deepcopy(valid);r[key]=value;variants.append((key,r))
+        for key,value in [('authorizedBy','Independent Reviewer'),('authorizationDate','2026-11-04'),('manualIndependentReview','PASS'),('mode','independently-reviewed'),('applicationBaselineSha','b'*40)]:
+            r=copy.deepcopy(valid);r['ownerAuthorization'][key]=value;r['sourceGate']['ownerAuthorization']=r['ownerAuthorization'];variants.append(('authorization '+key,r))
+        for key in ('ownerAuthorization','sourceGate','authorizedSourceSha','automatedValidation'):
+            r=copy.deepcopy(valid);del r[key];variants.append(('missing '+key,r))
+        r=copy.deepcopy(valid);r['sourceGate']['sourceSha']='c'*40;variants.append(('source-gate mismatch',r))
+        r=copy.deepcopy(valid);r['sourceGate']['applicationReviewedSha']='b'*40;variants.append(('source-gate false review',r))
+        for name,r in variants:
+            with self.subTest(name=name):
+                code,exists,_=self.run_record(r);self.assertNotEqual(code,0);self.assertFalse(exists)
+
+    def test_owner_waiver_rejects_incomplete_skipped_or_wrong_source_ci(self):
+        valid=self.owner_record()
+        variants=[]
+        for key,value in [('sourceSha','c'*40),('conclusion','failure'),('workflowUrl','https://example.invalid/run'),('jobs',[])]:
+            r=copy.deepcopy(valid);r['automatedValidation'][key]=value;variants.append((key,r))
+        for field,value in [('conclusion','skipped'),('stepCount',0),('stepCount',True),('stepCount','30'),('url','https://example.invalid/job')]:
+            r=copy.deepcopy(valid);r['automatedValidation']['jobs'][0][field]=value;variants.append((field,r))
+        r=copy.deepcopy(valid);r['automatedValidation']['jobs'].pop();variants.append(('missing native ARM64 job',r))
+        r=copy.deepcopy(valid);r['automatedValidation']['jobs'].append({'name':'unexpected','conclusion':'failure','stepCount':1,'url':'https://github.com/pixingzoudaiyuexing/Narbe/actions/runs/122/job/3'});variants.append(('extra failed job',r))
+        r=copy.deepcopy(valid);r['automatedValidation']['jobs'].append(copy.deepcopy(r['automatedValidation']['jobs'][0]));variants.append(('duplicate job',r))
+        for name,r in variants:
+            with self.subTest(name=name):
+                code,exists,_=self.run_record(r);self.assertNotEqual(code,0);self.assertFalse(exists)
+
+    def test_validation_cannot_be_disabled_by_python_optimization(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp=Path(tmp)
+            for make_record in (self.record,self.owner_record):
+                r=make_record();r['digest']='sha256:bad'
+                p=tmp/'record.json';p.write_text(json.dumps(r))
+                result=subprocess.run(['python3','-O',str(root/'bundle.py'),str(p),str(tmp/'out')],cwd=root.parent,capture_output=True)
+                self.assertNotEqual(result.returncode,0)
+                self.assertFalse((tmp/'out').exists())
+
     def test_registry_permission_failure_is_not_treated_as_absence(self):
         with mock.patch.object(registry.urllib.request,'build_opener') as opener:
             opener.return_value.open.side_effect=urllib.error.HTTPError('https://ghcr.io/token',403,'forbidden',{},None)

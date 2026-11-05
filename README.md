@@ -4,9 +4,7 @@
 
 **已发布版本为 [v0.1.0-beta.4](https://github.com/pixingzoudaiyuexing/Narbe/releases/tag/v0.1.0-beta.4)**，已完成应用及发行专项正式审核。测试版不宣称生产稳定；真实云写 E2E 与旧 CloudPanel 完整覆盖仍有缺口。
 
-> 本分支新增 **beta.5 候选**：四云 API 全局直连／HTTP、HTTPS、SOCKS5、SOCKS5H 代理，三条独立出口 IP 检测、只读云 API 诊断，以及 Linode 重装初始化脚本。**Formal Independent Review REQUIRED / PENDING；不发布 beta.5、不合并 main、不修改 Owner 部署。** 覆盖、安全配置、截图与证据见 [BETA5_DELIVERY.md](docs/BETA5_DELIVERY.md)，接口依据见 [BETA5_SOURCES.md](docs/BETA5_SOURCES.md)。
-
-> 当前 `codex/task-ux-followup` 是独立后续体验候选：有限并发、单次确认、密码可见切换与 Linode 自动关机／重置／恢复；正式独立审核 REQUIRED / PENDING。保留原 beta.5 发行候选不动，不发布或合并。详见 [TASK_UX_DELIVERY.md](docs/TASK_UX_DELIVERY.md)。
+> beta.5 已获 Owner 直接发行授权：整合任务调度、单次确认、自动 Linode root 密码重置及 Go 1.26.10，明确免除本轮额外人工 Independent Reviewer 复审，不冒称新的人工 PASS。发行执行与可用附件以 [beta.5 Release](https://github.com/pixingzoudaiyuexing/Narbe/releases/tag/v0.1.0-beta.5) 实际结果为准；来源、自动化验证与免审记录见 [Owner 发行记录](docs/BETA5_OWNER_RELEASE.md)。真实云写和自动改密 E2E 尚未完成，不宣称生产稳定。
 
 ## 已发布测试版安装
 

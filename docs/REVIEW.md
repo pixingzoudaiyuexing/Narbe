@@ -1,3 +1,5 @@
+2026-11-05：Owner 已明确免除 beta.5 本轮额外人工独立复审，授权整合 PR #2 并在完整自动化验证通过后直接发行。此路径是 Owner waiver，不是新增 Independent Reviewer PASS。历史审核结论仅覆盖各自原 SHA；当前固定源码、CI、来源校验、权限和证据要求见 [BETA5_OWNER_RELEASE.md](BETA5_OWNER_RELEASE.md)。
+
 当前 **beta.5 云 API 出口及 Linode 重装脚本**的 Formal Independent Review REQUIRED / PENDING。已发布 beta.4 的正式 PASS 不覆盖本轮。候选不发布、不合并 main、不变更 Owner 部署。审核范围、攻击面、实测／替身分级与缺口见 [BETA5_DELIVERY.md](BETA5_DELIVERY.md)，官方依据见 [BETA5_SOURCES.md](BETA5_SOURCES.md)。后续发行配置仍须单独准备及审核，beta.4 的发行双 SHA 不授权发布本轮业务代码。
 
 以下为历史记录，PENDING/PASS 仅对各自当时基线生效。
