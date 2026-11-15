@@ -41,7 +41,7 @@ SQLite 迁移仅新增表，继续使用同一数据 Volume 和 master.key。升
 
 目标仅限本轮经适配器验证的规范公网 IPv4 与探针本地白名单端口。连接固定数值 IP，不解析目标 DNS、不跟随重定向、不继承 HTTP_PROXY/ALL_PROXY；拒绝 Metadata、私网、回环、CGNAT、保留/文档/组播及映射地址。响应体、头、超时、并发均有界。管理员不能通过探针 API 提交任意目标扫描。
 
-固定 HTTPS Country.is 只提供 IP 地理归属证据，不能证明物理位置或全路径直连。分流 Clash/TUN/VPN 可能让地理服务与检测目标走不同线路；应使用受控国内 VPS 或明确关闭这类分流的网络。服务失败/国家未知/出口改变均停止判断。2026-11-15 的本机实测已发现 macOS 宿主出口为 CN，但 Docker Desktop 容器出口为 US；因此该容器不能仅凭 Mac 位于国内充当国内探针。Linux runner 的实际出口和容器接受测试由原生 CI 分开记录，不泛化为所有 Docker 网络行为。
+固定 HTTPS Country.is 只提供 IP 地理归属证据，不能证明物理位置或全路径直连。分流 Clash/TUN/VPN 可能让地理服务与检测目标走不同线路；应使用受控国内 VPS 或明确关闭这类分流的网络。服务失败/国家未知/出口改变均停止判断。2026-11-15 的本机实测已发现 macOS 宿主出口为 CN，但 Docker Desktop 容器出口为 US；因此该容器不能仅凭 Mac 位于国内充当国内探针。Linux runner 的宿主 IPv4 与容器实际出口、容器接受测试由原生 CI 分开记录（宿主查询不可用则明确 unverified），不泛化为所有 Docker 网络行为。
 
 ## 构建与候选镜像
 

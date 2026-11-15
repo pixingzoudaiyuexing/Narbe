@@ -37,6 +37,14 @@ jobs:
       - run: docker pull ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.5@sha256:bd27a8523fb2221ab5b66778a4e9408800281dcfc6c7dfc9d543e4117afea070
       - run: python3 scripts/test_upgrade.py --old-image ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.5@sha256:bd27a8523fb2221ab5b66778a4e9408800281dcfc6c7dfc9d543e4117afea070 --new-image narbe/ci:check
       - run: docker build -f Dockerfile.probe --build-arg VERSION=cn-candidate --build-arg "REVISION=$GITHUB_SHA" -t narbe-probe/ci:check .
+      - name: Observe native Linux host IPv4 egress for Docker route comparison
+        run: |
+          mkdir -p .local
+          if curl --ipv4 --noproxy "*" --fail --silent --show-error --connect-timeout 5 --max-time 15 --max-filesize 4096 https://api.country.is/ > .local/probe-host-egress.json; then
+            echo "HOST_IPV4_EGRESS=$(cat .local/probe-host-egress.json)"
+          else
+            echo 'HOST_IPV4_EGRESS={"status":"unverified","reason":"public geolocation service unavailable"}'
+          fi
       - run: NARBE_PROBE_IMAGE=narbe-probe/ci:check python3 scripts/test_probe_runtime.py
       - name: Export verified AMD64 Probe candidate
         run: |
@@ -70,6 +78,14 @@ jobs:
       - run: docker pull ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.5@sha256:bd27a8523fb2221ab5b66778a4e9408800281dcfc6c7dfc9d543e4117afea070
       - run: python3 scripts/test_upgrade.py --old-image ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.5@sha256:bd27a8523fb2221ab5b66778a4e9408800281dcfc6c7dfc9d543e4117afea070 --new-image narbe/ci:arm64
       - run: docker build -f Dockerfile.probe --build-arg VERSION=cn-candidate --build-arg "REVISION=$GITHUB_SHA" -t narbe-probe/ci:arm64 .
+      - name: Observe native Linux host IPv4 egress for Docker route comparison
+        run: |
+          mkdir -p .local
+          if curl --ipv4 --noproxy "*" --fail --silent --show-error --connect-timeout 5 --max-time 15 --max-filesize 4096 https://api.country.is/ > .local/probe-host-egress.json; then
+            echo "HOST_IPV4_EGRESS=$(cat .local/probe-host-egress.json)"
+          else
+            echo 'HOST_IPV4_EGRESS={"status":"unverified","reason":"public geolocation service unavailable"}'
+          fi
       - run: NARBE_PROBE_IMAGE=narbe-probe/ci:arm64 python3 scripts/test_probe_runtime.py
       - name: Export verified ARM64 Probe candidate
         run: |
