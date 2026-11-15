@@ -395,7 +395,7 @@ func (a *App) runScreeningOne(parent context.Context) bool {
 			v.ResourceID = checkpoint.ResourceID
 			v.Resources = mergeScreenResources(v.Resources, checkpoint)
 			if checkpoint.Screening != nil {
-				v.Stage = checkpoint.Screening.Stage
+				v.Stage = screeningStage(checkpoint.Screening.Stage)
 			}
 			if e := a.screenSave(&v); e != nil {
 				return e
@@ -569,8 +569,8 @@ func (a *App) runScreeningOne(parent context.Context) bool {
 			v.Rounds[idx].Control = &control
 			evidence := screeningEvidence{Target: target, Domestic: domestic, Control: control, DomesticEgress: deg, ControlEgress: ceg}
 			v.Rounds[idx].Evidence = append(v.Rounds[idx].Evidence, evidence)
-			if len(v.Rounds[idx].Evidence) > 600 {
-				a.screenEnd(&v, "paused", "达到每轮600次检测的安全上限，全部历史已保留；当前实例保留")
+			if screeningEvidenceCount(v) >= 600 {
+				a.screenEnd(&v, "paused", "达到整轮600次检测的安全上限，全部历史已保留；当前实例保留")
 				return true
 			}
 			if !domestic.Success && !networkFailure(domestic) {
@@ -809,7 +809,7 @@ func (a *App) remoteCheck(ctx context.Context, screeningID, probeID string, targ
 }
 func (a *App) screeningsAPI(w http.ResponseWriter, r *http.Request, path string) {
 	if path == "" && r.Method == "GET" {
-		rows, e := a.S.DB.Query("SELECT id,data,state,stage FROM screenings ORDER BY created DESC,id DESC LIMIT 200")
+		rows, e := a.S.DB.Query("SELECT id,data,state,stage FROM screenings ORDER BY created DESC,id DESC LIMIT 20")
 		if e != nil {
 			fail(w, 500, "筛选记录读取失败")
 			return
@@ -1003,4 +1003,33 @@ func mergeScreenResources(old []cloud.RelatedResource, op cloud.Operation) []clo
 		out = mergeRelated(out, op.Ledger.Resources)
 	}
 	return out
+}
+
+func screeningStage(stage string) string {
+	labels := map[string]string{
+		"validated":              "正在核对换 IP 配置",
+		"deleting":               "正在删除本轮实例",
+		"deleted-confirmed":      "已确认本轮实例删除",
+		"stopping":               "正在停止本轮实例",
+		"stopped":                "已确认关机",
+		"starting":               "正在重新开机",
+		"creating-public-ip":     "正在创建新的公网 IP",
+		"public-ip-created":      "新公网 IP 已创建，等待换绑",
+		"updating-nic":           "正在为原网卡绑定新公网 IP",
+		"public-ip-associated":   "新公网 IP 已绑定",
+		"deleting-old-public-ip": "正在删除已解绑的旧公网 IP",
+		"completed":              "本轮换 IP 操作已核实，准备重新检测",
+	}
+	if label, ok := labels[stage]; ok {
+		return label
+	}
+	return "云端步骤待核实，请查看本轮操作记录"
+}
+
+func screeningEvidenceCount(v screeningView) int {
+	n := 0
+	for _, r := range v.Rounds {
+		n += len(r.Evidence)
+	}
+	return n
 }

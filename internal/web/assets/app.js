@@ -69,6 +69,7 @@ const labels = {
   delete: "删除服务器",
 };
 const statuses = {
+  screening: "正在自动筛选",
   running: "正在执行",
   active: "运行中",
   on: "运行中",

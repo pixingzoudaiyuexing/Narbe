@@ -1,4 +1,5 @@
 const workflowStates = {
+  queued: "等待筛选",
   creating: "正在创建",
   "waiting-ready": "等待服务就绪",
   probing: "正在检测",
