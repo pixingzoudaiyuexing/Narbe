@@ -19,11 +19,22 @@ docker tag narbe-probe/ci:arm64 narbe-probe:cn-candidate
 
 前提：国内 Linux AMD64 / ARM64，或 macOS Docker Desktop；Docker Engine 与 Compose 可用。管理端必须已有可验证证书的 HTTPS 域名。不能使用 HTTP、跳过证书验证或自签证书绕过开关。
 
-在本仓库中执行，先在 Narbe 探针管理页生成一次性注册凭据：
+先导入上述候选镜像，或在本仓库构建，然后核实**容器**的真实出口：
+
+```bash
+docker build -f Dockerfile.probe -t narbe-probe:cn-candidate .
+docker run --rm --read-only --cap-drop ALL \
+  --security-opt no-new-privileges:true narbe-probe:cn-candidate egress
+```
+
+在 Narbe 探针管理页填写这份容器输出的公网 IPv4 并生成一次性注册凭据。国内探针必须显示 `CN`；如果容器显示其他国家或无法核实，先调整探针部署网络或更换国内节点，不能填宿主机的不同 IP 来冒充国内出口。海外对照探针选择相应角色。
+
+接着在本仓库执行：
 
 ```bash
 umask 077
-read -r -s -p '一次性探针注册凭据: ' token; printf '\n'
+printf '一次性探针注册凭据: '
+IFS= read -r -s token; printf '\n'
 printf '%s' "$token" > deploy/probe-registration-token.txt
 unset token
 # 容器固定使用非 root UID 65532；文件仅供该 UID 读取。
@@ -32,9 +43,10 @@ sudo chmod 0400 deploy/probe-registration-token.txt
 cat > deploy/.env <<'EOF'
 NARBE_PROBE_CONTROL_URL=https://narbe.example.com
 NARBE_PROBE_ALLOWED_PORTS=22,80,443,8443,8080
+NARBE_PROBE_NETWORK_MODE=bridge
 EOF
 # 先将上面的 HTTPS 域名改为自己的管理端地址。
-docker compose --env-file deploy/.env -f deploy/probe-compose.yaml up -d --build
+docker compose --env-file deploy/.env -f deploy/probe-compose.yaml up -d --no-build
 docker compose --env-file deploy/.env -f deploy/probe-compose.yaml ps
 docker compose --env-file deploy/.env -f deploy/probe-compose.yaml logs --tail=50
 ```
@@ -48,6 +60,8 @@ docker compose --env-file deploy/.env -f deploy/probe-compose.yaml logs --tail=5
 ## 出口网络与国内身份
 
 Agent 和目标检测显式不继承 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`。要使用不同出口，请在宿主机或 Docker 的受控路由网络中部署独立探针；这不会配置 VPS 代理功能。
+
+Compose 的 `NARBE_PROBE_NETWORK_MODE` 默认 `bridge`，可指定部署者已有的受控 Docker 网络。Linux 可显式使用 `host` 沿用宿主网络栈；Docker Desktop 的 host 网络还受其功能设置与虚拟机路由影响，不能等同于 macOS 宿主直连。变更后须重新创建探针并再次执行出口自检；出口 IP 改变后要在面板登记新的探针身份，不可继续冒用旧出口。
 
 Agent 通过固定的 `https://api.country.is/`、验证 TLS 证书并强制 IPv4，获取当前进程实际观察到的公网 IPv4 与国家码。每次检测前后再次核对出口；变化或无法核实时返回“出口证据不足”，不能作为自动删机依据。Narbe 必须独立核验探针角色、期望出口与证据新鲜度：Agent 不会因为机器物理位置在国内就自行声明“中国大陆直连”；海外对照探针也可以使用相同程序。
 

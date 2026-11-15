@@ -7,6 +7,7 @@ services:
       context: ..
       dockerfile: Dockerfile.probe
     restart: unless-stopped
+    network_mode: ${NARBE_PROBE_NETWORK_MODE:-bridge}
     read_only: true
     user: "65532:65532"
     cap_drop: [ALL]
