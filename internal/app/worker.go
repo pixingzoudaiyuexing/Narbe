@@ -17,6 +17,10 @@ const workerConcurrency = 4
 func (a *App) Run(ctx context.Context) {
 	defer a.stopInventories()
 	var workers sync.WaitGroup
+	for n := 0; n < 2; n++ {
+		workers.Add(1)
+		go func() { defer workers.Done(); a.screeningLoop(ctx) }()
+	}
 	for n := 0; n < workerConcurrency; n++ {
 		workers.Add(1)
 		go func() { defer workers.Done(); a.workerLoop(ctx) }()
@@ -111,6 +115,12 @@ func (a *App) runOne(parent context.Context) bool {
 		}
 		k, _ := cloud.Find(c.Keys, b.Spec.Key)
 		b.Spec.SSHPublicKey = k.Extra["publicKey"]
+	}
+	if b.Screening != nil {
+		if e := a.startScreening(ctx, id, b, acc, ns); e != nil {
+			a.finish(id, "failed", "自动筛选未启动；未发送云操作", cloud.Operation{}, e)
+		}
+		return true
 	}
 	_, e = a.S.DB.Exec("UPDATE jobs SET progress='正在向云服务商提交操作',updated=? WHERE id=?", store.Now(), id)
 	if e != nil {

@@ -100,3 +100,7 @@ macOS 浏览器验证默认使用已安装的 Google Chrome；其他环境使用
 单元/合同测试不连接真实云；浏览器测试运行真实 Go API/SQLite，云服务替身通过测试代码注入，生产程序没有 mock 或跳过认证的开关。所有真实收费创建和云资源删除，需要另行获得 Owner 对目标、数量和操作的授权。
 
 更多说明：[架构与安全边界](docs/ARCHITECTURE.md)、[功能覆盖](docs/COVERAGE.md)、[内部审查](docs/REVIEW.md)、[实际验证](docs/VALIDATION.md)。
+
+## 国内 IP 自动筛选开发候选
+
+基于 beta.5 的后续候选实现见 [功能与安全边界](docs/CN_CONNECTIVITY.md)、[Probe Docker 部署](docs/PROBE.md)及[复审入口](docs/CN_CONNECTIVITY_REVIEW.md)。尚未作为新版本发布，现有 beta.5 安装与升级说明不变。

@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/oss/go/microsoft/golang:1.26.10-bookworm@sha256:7b55d3a69ad61f6980d0a9e3b60368a909000839fad24aef72c210bd5c8982c1 AS build
+FROM mcr.microsoft.com/oss/go/microsoft/golang:1.26.11-bookworm@sha256:b40d917d1b6dcc11590cb3986a498f4858a229feab9f130d3acf68d6db28aa74 AS build
 WORKDIR /src
 ARG GOPROXY=https://proxy.golang.org,direct
 ENV CGO_ENABLED=0 GOEXPERIMENT=nosystemcrypto GOTELEMETRY=off

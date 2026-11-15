@@ -35,6 +35,7 @@ type App struct {
 	inventories    map[string]*inventoryEntry
 	inventorySlots chan struct{}
 	advancedSlots  chan struct{}
+	connectivity   connectivityRuntime
 }
 type account struct {
 	ID       string `json:"id"`
@@ -44,6 +45,7 @@ type account struct {
 	Revision int    `json:"revision"`
 }
 type mutation struct {
+	Screening       *screeningConfig    `json:"screening,omitempty"`
 	NetworkRevision int                 `json:"networkRevision,omitempty"`
 	Advanced        *cloud.LinodeChange `json:"advanced,omitempty"`
 	ID              string              `json:"id"`
@@ -58,19 +60,20 @@ type mutation struct {
 	AccountRevision int                 `json:"accountRevision"`
 }
 type job struct {
-	ID        string           `json:"id"`
-	AccountID string           `json:"accountId"`
-	Action    string           `json:"action"`
-	Region    string           `json:"region"`
-	Target    string           `json:"target"`
-	Name      string           `json:"name"`
-	State     string           `json:"state"`
-	Progress  string           `json:"progress"`
-	Result    *cloud.Operation `json:"result,omitempty"`
-	Error     string           `json:"error,omitempty"`
-	Created   int64            `json:"created"`
-	Updated   int64            `json:"updated"`
-	Provider  string           `json:"provider"`
+	ScreeningID string           `json:"screeningId,omitempty"`
+	ID          string           `json:"id"`
+	AccountID   string           `json:"accountId"`
+	Action      string           `json:"action"`
+	Region      string           `json:"region"`
+	Target      string           `json:"target"`
+	Name        string           `json:"name"`
+	State       string           `json:"state"`
+	Progress    string           `json:"progress"`
+	Result      *cloud.Operation `json:"result,omitempty"`
+	Error       string           `json:"error,omitempty"`
+	Created     int64            `json:"created"`
+	Updated     int64            `json:"updated"`
+	Provider    string           `json:"provider"`
 }
 
 func New(s *store.Store, origin string) *App {
@@ -86,6 +89,7 @@ func (a *App) Handler() http.Handler {
 		reply(w, 200, map[string]string{"status": "ok"})
 	})
 	mux.HandleFunc("POST /api/login", a.login)
+	mux.HandleFunc("/probe/v1/", a.probeAPI)
 	mux.Handle("/api/", a.auth(http.HandlerFunc(a.api)))
 	mux.Handle("/", web.Handler())
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -93,10 +97,10 @@ func (a *App) Handler() http.Handler {
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self' https://api64.ipify.org; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
-		if strings.HasPrefix(r.URL.Path, "/api/") {
+		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/probe/") {
 			w.Header().Set("Cache-Control", "no-store")
 		}
-		if r.Method != "GET" && r.Method != "HEAD" && !a.sameOrigin(r) {
+		if r.Method != "GET" && r.Method != "HEAD" && !strings.HasPrefix(r.URL.Path, "/probe/v1/") && !a.sameOrigin(r) {
 			fail(w, 403, "请求来源无效，请重新打开面板")
 			return
 		}
@@ -228,6 +232,10 @@ func (a *App) providerContext(ctx context.Context, id string) (account, cloud.Pr
 func (a *App) api(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/")
 	switch {
+	case path == "probes" || strings.HasPrefix(path, "probes/"):
+		a.probesAPI(w, r, strings.TrimPrefix(path, "probes"))
+	case path == "screenings" || strings.HasPrefix(path, "screenings/"):
+		a.screeningsAPI(w, r, strings.TrimPrefix(path, "screenings"))
 	case path == "network":
 		a.networkAPI(w, r)
 	case path == "network/test":
@@ -563,6 +571,14 @@ func (a *App) accountEdit(w http.ResponseWriter, r *http.Request, id string) {
 	reply(w, 200, map[string]bool{"ok": true})
 }
 func (a *App) validate(ctx context.Context, b mutation) error {
+	if b.Screening != nil {
+		if b.Action != "create" {
+			return errors.New("国内连通性筛选仅适用于本轮新建服务器")
+		}
+		if e := a.validateScreening(*b.Screening); e != nil {
+			return e
+		}
+	}
 	if len(b.ID) < 16 || len(b.ID) > 64 {
 		return errors.New("请求标识无效")
 	}
@@ -890,7 +906,7 @@ func (a *App) submit(w http.ResponseWriter, r *http.Request) {
 	reply(w, 202, map[string]string{"id": b.ID})
 }
 func (a *App) jobs() ([]job, error) {
-	rows, e := a.S.DB.Query("SELECT j.id,j.account_id,j.action,j.region,j.target,j.name,j.state,j.progress,j.result,j.error,j.created,j.updated,a.provider FROM jobs j JOIN accounts a ON a.id=j.account_id ORDER BY j.created DESC,j.id DESC LIMIT 200")
+	rows, e := a.S.DB.Query("SELECT j.id,j.account_id,j.action,j.region,j.target,j.name,j.state,j.progress,j.result,j.error,j.created,j.updated,a.provider,COALESCE(s.id,'') FROM jobs j JOIN accounts a ON a.id=j.account_id LEFT JOIN screenings s ON s.job_id=j.id ORDER BY j.created DESC,j.id DESC LIMIT 200")
 	if e != nil {
 		return nil, e
 	}
@@ -899,7 +915,7 @@ func (a *App) jobs() ([]job, error) {
 	for rows.Next() {
 		var j job
 		var result []byte
-		if e = rows.Scan(&j.ID, &j.AccountID, &j.Action, &j.Region, &j.Target, &j.Name, &j.State, &j.Progress, &result, &j.Error, &j.Created, &j.Updated, &j.Provider); e != nil {
+		if e = rows.Scan(&j.ID, &j.AccountID, &j.Action, &j.Region, &j.Target, &j.Name, &j.State, &j.Progress, &result, &j.Error, &j.Created, &j.Updated, &j.Provider, &j.ScreeningID); e != nil {
 			return nil, e
 		}
 		if len(result) > 0 {
@@ -913,6 +929,17 @@ func (a *App) jobs() ([]job, error) {
 	return out, rows.Err()
 }
 func (a *App) jobAction(w http.ResponseWriter, r *http.Request, path string) {
+	idForScreening := strings.Split(path, "/")[0]
+	var screeningCount int
+	if a.S.DB.QueryRow("SELECT count(*) FROM screenings WHERE job_id=?", idForScreening).Scan(&screeningCount) != nil {
+		fail(w, 500, "任务读取失败")
+		return
+	}
+	if screeningCount > 0 {
+		fail(w, 409, "请在国内连通性任务中停止或只读核实；不能将单步结果当作整个流程成功")
+		return
+	}
+
 	parts := strings.Split(path, "/")
 	if len(parts) != 2 {
 		fail(w, 404, "任务不存在")

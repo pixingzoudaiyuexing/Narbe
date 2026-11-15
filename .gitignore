@@ -12,3 +12,6 @@ node_modules/
 /coverage.out
 __pycache__/
 *.pyc
+
+/deploy/.env
+/deploy/probe-registration-token.txt
