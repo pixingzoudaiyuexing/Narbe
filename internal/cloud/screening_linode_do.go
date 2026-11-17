@@ -2,8 +2,10 @@ package cloud
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 func (l *Linode) InspectScreening(ctx context.Context, s Spec, token string, op Operation) (ScreeningResource, error) {
@@ -168,7 +170,11 @@ func (d *DigitalOcean) InspectScreening(ctx context.Context, s Spec, token strin
 	if assoc.Volumes == nil || assoc.Snapshots == nil || assoc.VolumeSnapshots == nil || len(assoc.Volumes)+len(assoc.Snapshots)+len(assoc.VolumeSnapshots)+len(assoc.Reserved)+len(assoc.Floating) > 0 {
 		return r, &Error{Code: "Droplet 附属计费资源不为空或无法确认，未自动删除"}
 	}
-	// Listing per-IP avoids accidentally releasing a separately owned Reserved IP.
+	// A Reserved IP is separate from the Droplet primary IPv4. A primary-IP
+	// lookup returning 404 cannot prove there is no secondary reserved address.
+	if err := d.screeningReservedIPs(ctx, op.ResourceID); err != nil {
+		return r, err
+	}
 	public := []string{}
 	for _, n := range v.Networks.V4 {
 		if n.Type == "public" {
@@ -197,6 +203,54 @@ func (d *DigitalOcean) InspectScreening(ctx context.Context, s Spec, token strin
 		Backups                                 bool
 	}{v.ID, v.Name, v.Region.Slug, v.Size.Slug, s.Image, v.VPCUUID, fingerprint(d.token), v.Tags, v.Features, v.VolumeIDs, contains(v.Features, "backups")})
 	return r, nil
+}
+
+func (d *DigitalOcean) screeningReservedIPs(ctx context.Context, target string) error {
+	seen := map[string]bool{}
+	bytesRead := 0
+	for page := 1; page <= 10; page++ {
+		var response struct {
+			Items []jsonRaw `json:"reserved_ips"`
+		}
+		if err := d.call(ctx, "GET", fmt.Sprintf("/reserved_ips?per_page=200&page=%d", page), nil, &response); err != nil {
+			return err
+		}
+		if response.Items == nil || len(response.Items) > 200 {
+			return &Error{Code: "Reserved IP 列表缺失或数量异常，不能排除附属计费资源"}
+		}
+		for _, raw := range response.Items {
+			bytesRead += len(raw)
+			if bytesRead > 2<<20 {
+				return &Error{Code: "Reserved IP 归属查询超过安全大小，未自动删除"}
+			}
+			var item map[string]jsonRaw
+			var ip string
+			if json.Unmarshal(raw, &item) != nil || json.Unmarshal(item["ip"], &ip) != nil || !screeningIPv4(ip) || seen[ip] {
+				return &Error{Code: "Reserved IP 地址或列表身份无效，未自动删除"}
+			}
+			seen[ip] = true
+			binding, present := item["droplet"]
+			if !present {
+				return &Error{Code: "Reserved IP 绑定状态缺失，请检查 reserved_ip:read 与 droplet:read 权限"}
+			}
+			if strings.TrimSpace(string(binding)) == "null" {
+				continue
+			}
+			var owner struct {
+				ID int `json:"id"`
+			}
+			if json.Unmarshal(binding, &owner) != nil || owner.ID <= 0 {
+				return &Error{Code: "Reserved IP 的 Droplet 归属无法核实，未自动删除"}
+			}
+			if strconv.Itoa(owner.ID) == target {
+				return &Error{Code: "本轮 Droplet 绑定了独立 Reserved IP，未自动删除"}
+			}
+		}
+		if len(response.Items) < 200 {
+			return nil
+		}
+	}
+	return &Error{Code: "Reserved IP 分页超过安全上限，未自动删除"}
 }
 
 func (d *DigitalOcean) ReplaceScreeningIP(ctx context.Context, s Spec, token string, op Operation, expected string) (Operation, error) {

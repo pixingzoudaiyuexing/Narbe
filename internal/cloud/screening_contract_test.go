@@ -50,10 +50,13 @@ type screeningDOFixture struct {
 	associated              map[string]any
 	deleted, lost, reserved bool
 	writes                  []string
+	reservedPages           [][]any
+	reservedStatus          int
+	reservedListCalls       int
 }
 
 func screeningDO(t *testing.T) (*DigitalOcean, *screeningDOFixture, Spec, Operation) {
-	f := &screeningDOFixture{data: map[string]any{"id": 123, "name": "fixture", "status": "active", "region": map[string]any{"slug": "nyc3"}, "size": map[string]any{"slug": "s-1vcpu-1gb"}, "image": map[string]any{"id": 9}, "tags": []string{"narbe-screening-token"}, "networks": map[string]any{"v4": []any{map[string]any{"type": "public", "ip_address": "8.8.8.8"}}}, "volume_ids": []string{}, "features": []string{}, "vpc_uuid": "vpc-same"}, associated: map[string]any{"snapshots": []any{}, "volumes": []any{}, "volume_snapshots": []any{}}, writes: []string{}}
+	f := &screeningDOFixture{data: map[string]any{"id": 123, "name": "fixture", "status": "active", "region": map[string]any{"slug": "nyc3"}, "size": map[string]any{"slug": "s-1vcpu-1gb"}, "image": map[string]any{"id": 9}, "tags": []string{"narbe-screening-token"}, "networks": map[string]any{"v4": []any{map[string]any{"type": "public", "ip_address": "8.8.8.8"}}}, "volume_ids": []string{}, "features": []string{}, "vpc_uuid": "vpc-same"}, associated: map[string]any{"snapshots": []any{}, "volumes": []any{}, "volume_snapshots": []any{}}, writes: []string{}, reservedPages: [][]any{{}}, reservedStatus: 200}
 	h := screeningHTTP(t, func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -79,6 +82,26 @@ func screeningDO(t *testing.T) (*DigitalOcean, *screeningDOFixture, Spec, Operat
 			screeningJSON(w, 200, map[string]any{"droplet": f.data})
 		case "/v2/droplets/123/destroy_with_associated_resources":
 			screeningJSON(w, 200, f.associated)
+		case "/v2/reserved_ips":
+			f.reservedListCalls++
+			if r.URL.Query().Get("per_page") != "200" {
+				t.Error("Reserved IP list omitted bounded page size")
+			}
+			if f.reservedStatus != 200 {
+				screeningJSON(w, f.reservedStatus, map[string]any{"id": "forbidden", "message": "reserved_ip:read required"})
+				return
+			}
+			if f.reserved {
+				screeningJSON(w, 200, map[string]any{"reserved_ips": []any{map[string]any{"ip": "8.8.4.4", "droplet": map[string]any{"id": 123}}}})
+				return
+			}
+			page := mustInt(r.URL.Query().Get("page"))
+			if page < 1 || page > len(f.reservedPages) {
+				t.Error("unexpected Reserved IP page", page)
+				screeningJSON(w, 500, map[string]any{})
+				return
+			}
+			screeningJSON(w, 200, map[string]any{"reserved_ips": f.reservedPages[page-1]})
 		case "/v2/reserved_ips/8.8.8.8":
 			if f.reserved {
 				screeningJSON(w, 200, map[string]any{"reserved_ip": map[string]any{}})
@@ -190,6 +213,87 @@ func TestScreeningDOResponseLossNeverReplaysOrCreates(t *testing.T) {
 	defer f.mu.Unlock()
 	if len(f.writes) != 1 {
 		t.Fatal("unknown replayed", f.writes)
+	}
+}
+
+func TestScreeningDOSecondaryReservedIPIsNeverMissed(t *testing.T) {
+	for _, name := range []string{"attached-secondary", "attached-page-two", "missing-droplet", "malformed-droplet", "invalid-droplet-id", "string-droplet-id", "invalid-ip", "scope-forbidden", "null-list", "duplicate-ip"} {
+		t.Run(name, func(t *testing.T) {
+			p, f, s, op := screeningDO(t)
+			baseline, err := p.InspectScreening(context.Background(), s, "screening-token", op)
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry := map[string]any{"ip": "8.8.4.4", "droplet": map[string]any{"id": 123}}
+			f.mu.Lock()
+			switch name {
+			case "attached-secondary":
+				f.reservedPages = [][]any{{entry}}
+			case "attached-page-two":
+				first := []any{}
+				for n := 1; n <= 200; n++ {
+					first = append(first, map[string]any{"ip": fmt.Sprintf("11.0.0.%d", n), "droplet": nil})
+				}
+				f.reservedPages = [][]any{first, {entry}}
+			case "missing-droplet":
+				delete(entry, "droplet")
+				f.reservedPages = [][]any{{entry}}
+			case "malformed-droplet":
+				entry["droplet"] = map[string]any{}
+				f.reservedPages = [][]any{{entry}}
+			case "invalid-droplet-id":
+				entry["droplet"] = map[string]any{"id": 0}
+				f.reservedPages = [][]any{{entry}}
+			case "string-droplet-id":
+				entry["droplet"] = map[string]any{"id": "123"}
+				f.reservedPages = [][]any{{entry}}
+			case "invalid-ip":
+				entry["ip"] = "127.0.0.1"
+				f.reservedPages = [][]any{{entry}}
+			case "scope-forbidden":
+				f.reservedStatus = 403
+			case "null-list":
+				f.reservedPages = [][]any{nil}
+			case "duplicate-ip":
+				entry["droplet"] = nil
+				f.reservedPages = [][]any{{entry, entry}}
+			}
+			f.mu.Unlock()
+			var saved Operation
+			_, err = p.ReplaceScreeningIP(screeningRecord(&saved), s, "screening-token", op, baseline.Fingerprint)
+			if err == nil {
+				t.Fatal("unsafe deletion accepted despite secondary Reserved IP or unverifiable list")
+			}
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if len(f.writes) != 0 {
+				t.Fatal("Reserved IP uncertainty issued cloud delete", f.writes)
+			}
+			if name == "attached-page-two" && f.reservedListCalls < 3 {
+				t.Fatal("complete paginated list was not read")
+			}
+		})
+	}
+}
+
+func TestScreeningDOUnrelatedReservedIPsDoNotLockAccount(t *testing.T) {
+	p, f, s, op := screeningDO(t)
+	f.mu.Lock()
+	f.reservedPages = [][]any{{map[string]any{"ip": "8.8.4.4", "droplet": nil}, map[string]any{"ip": "9.9.9.9", "droplet": map[string]any{"id": 456}}}}
+	f.mu.Unlock()
+	r, err := p.InspectScreening(context.Background(), s, "screening-token", op)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved Operation
+	_, err = p.ReplaceScreeningIP(screeningRecord(&saved), s, "screening-token", op, r.Fingerprint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.writes) != 1 || f.writes[0] != "DELETE /v2/droplets/123" {
+		t.Fatal("unrelated Reserved IP blocked task or got deleted", f.writes)
 	}
 }
 

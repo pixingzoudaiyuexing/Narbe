@@ -7,7 +7,7 @@
 | AWS | 原实例 EBS stop → 确认 stopped → 再次核实身份及配置 → start → 确认 running / 公网 IPv4 | 本轮 ClientToken 与 `narbe-job` 标签、准确实例 ID、账号、地区、AMI、规格、根磁盘、子网、密钥、初始化数据一致；仅单 ENI 单私有 IP；DescribeAddresses 证明 ENI 无 EIP。instance-store、EIP、复杂网络或发生外部修改时暂停，不自动删除 VM。 |
 | Azure | 新建独立 Standard / Static IPv4 → 确认 → 精确替换单一 NIC IP configuration 的 Public IP → 核实 → 仅删除已解绑的本轮旧 Public IP → 确认 404 | VM、系统盘、NIC、NSG、订阅和资源组全部按本轮创建账本及标签核实。保留完整 NIC GET 表示，写前重读、发送观测 ETag 的 If-Match，写后比较唯一允许变化。复杂拓扑拒绝，不删 VM、磁盘、NIC、NSG。全部旧新 Public IP 先进入持久化账本。 |
 | Linode | 删除本轮准确实例 ID → GET 404 确认 → 上层工作流另行创建 | 仅本轮标准 legacy_config 新实例、单一普通非 Reserved 公网 IPv4，无附属 Volume、VPC/VLAN、共享 IP、锁、托管集群或新接口代际。API 未返回 `reserved:false` 不能自动删除。任务自建独立防火墙则暂停，避免每轮遗留资源；已有防火墙不被删除。 |
-| DigitalOcean | 删除本轮准确 Droplet ID → GET 404 确认 → 上层工作流另行创建 | 本轮标签、ID、地区、规格和镜像必须一致；检查附属资源、Volume 与 Reserved IP，复杂/未知情况暂停。不使用 Rebuild 换 IP，不使用 destroy-all 端点。 |
+| DigitalOcean | 删除本轮准确 Droplet ID → GET 404 确认 → 上层工作流另行创建 | 本轮标签、ID、地区、规格和镜像必须一致；检查附属资源、Volume 与 Reserved IP（完整分页读取，核对每个地址的 droplet.id，不以主 IPv4 查询 404 代替）；缺少读取权限、绑定字段缺失或复杂/未知情况暂停。不使用 Rebuild 换 IP，不使用 destroy-all 端点。 |
 
 所有换 IP 写请求在派发前都必须通过 `WithOperationRecorder` 保存操作、阶段、准确资源 ID 和关联资源账本。缺少 recorder 或保存失败时不发送新写请求。任何写结果未知时保持未确认检查点，再次调用不能重放；只读恢复不能隐式继续关机、开机、删除或新建。
 
@@ -26,6 +26,7 @@
 - [Linode Get networking information](https://techdocs.akamai.com/linode-api/reference/get-linode-ips)：可读取普通 / reserved / shared / VPC 地址与地址归属。
 - [Linode Reserved IPv4 July 2026](https://techdocs.akamai.com/linode-api/changelog/july-1-2026)：Reserved IP 在实例删除后仍保留，持续按小时收费。不能沿用“所有公网 IP 删除实例即释放”的旧假设。
 - [DigitalOcean static address lifetime](https://docs.digitalocean.com/support/are-my-droplets-ip-addresses-static/)：普通 Droplet IPv4 在实例生命周期内保持；删除释放回地址池，没有新旧地址一定不同的保证。
+- [DigitalOcean Reserved IP 列表](https://docs.digitalocean.com/reference/api/reference/reserved-ips/)：Reserved IP 是独立地址，分页返回 droplet 归属；需要 reserved_ip:read，不能通过普通主 IP 查询证明没有绑定。只查询完整列表并排除本轮目标绑定，不阻断其他 Droplet 或未绑定的 Reserved IP。
 - [DigitalOcean Rebuild](https://docs.digitalocean.com/products/droplets/how-to/rebuild/)：Rebuild 保留 IP，不能用于本功能换 IP。
 - [DigitalOcean associated resources API](https://docs.digitalocean.com/reference/api/reference/droplets/)：只读列出关联资源；此功能不调用危险的全量关联资源删除。
 

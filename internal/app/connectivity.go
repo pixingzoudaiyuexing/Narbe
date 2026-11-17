@@ -878,6 +878,12 @@ func (a *App) screeningsAPI(w http.ResponseWriter, r *http.Request, path string)
 		return
 	}
 	if len(parts) == 2 && parts[1] == "reconcile" && r.Method == "POST" {
+
+		var retired, revision int
+		if a.S.DB.QueryRow("SELECT retired,revision FROM accounts WHERE id=?", p.Mutation.AccountID).Scan(&retired, &revision) != nil || retired != 0 || revision != p.Mutation.AccountRevision {
+			fail(w, 409, "账号已移除或凭据版本已变化，不能继续使用历史凭据核实；请到云控制台检查原资源")
+			return
+		}
 		res, e := a.S.DB.Exec("UPDATE screenings SET busy=1 WHERE id=? AND busy=0 AND state NOT IN ('queued','creating','waiting-ready','probing','replacing')", v.ID)
 		if e != nil {
 			fail(w, 500, "只读核实无法开始")

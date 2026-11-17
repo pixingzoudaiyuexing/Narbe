@@ -607,3 +607,23 @@ func TestScreeningPartialCreationLedgerRetainsEveryPossiblyBillableResource(t *t
 		t.Fatal("later reads overwrote old deletion history", ledger)
 	}
 }
+
+func TestScreeningReadOnlyReconcileHonorsCredentialRetirementAndRevision(t *testing.T) {
+	for _, change := range []string{"retired=1", "revision=revision+1"} {
+		t.Run(change, func(t *testing.T) {
+			h, f, b := newScreenHarness(t)
+			v := runScreen(t, h, b.ID, func(int) bool { return true })
+			if v.State != "accepted" {
+				t.Fatal(v.State)
+			}
+			before := f.inspects
+			if _, e := h.a.S.DB.Exec("UPDATE accounts SET "+change+" WHERE id=?", b.AccountID); e != nil {
+				t.Fatal(e)
+			}
+			r := screenRequest(h, "POST", "screenings/"+b.ID+"/reconcile", nil)
+			if r.Code != 409 || f.inspects != before {
+				t.Fatalf("retired/revised credential reused for cloud read: http%d reads before%d after%d", r.Code, before, f.inspects)
+			}
+		})
+	}
+}
