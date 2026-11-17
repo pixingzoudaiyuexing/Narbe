@@ -12,7 +12,7 @@
 
 ## 安装
 
-需要 Docker Engine/Desktop、Docker Compose v2、Buildx、Bash、OpenSSL、Python 3；仅源码开发需要 Go **1.26.10+**。支持 Linux amd64/arm64 源码构建；当前本机实际验证 linux/arm64，amd64 在 CI 构建。
+需要 Docker Engine/Desktop、Docker Compose v2、Buildx、Bash、OpenSSL、Python 3；仅源码开发需要 Go **1.26.11+**。支持 Linux amd64/arm64 源码构建；当前本机实际验证 linux/arm64，amd64 在 CI 构建。
 
 ```bash
 git clone https://github.com/pixingzoudaiyuexing/Narbe.git

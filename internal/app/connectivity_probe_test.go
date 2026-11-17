@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -552,5 +553,39 @@ func TestConnectivityProbeConcurrentExactResultIdempotency(t *testing.T) {
 	var checks, successes int
 	if err := p.h.a.S.DB.QueryRow("SELECT checks,successes FROM connectivity_probes WHERE id=?", pid).Scan(&checks, &successes); err != nil || checks != 1 || successes != 1 {
 		t.Fatalf("duplicateCAS doublecount %d/%d %v", checks, successes, err)
+	}
+}
+
+func TestConnectivityProbeRecentRateUsesLast100Checks(t *testing.T) {
+	h := setup(t)
+	probeID := seedScreenProbe(t, h)
+	aid := h.add(t)
+	jobID := store.ID()
+	_, e := h.a.S.DB.Exec("INSERT INTO jobs(id,account_id,action,region,target,name,payload,state,progress,created,updated) VALUES(?,?,'create','r','','fixture',?,'succeeded','fixture',?,?)", jobID, aid, []byte("fixture"), store.Now(), store.Now())
+	if e != nil {
+		t.Fatal(e)
+	}
+	_, e = h.a.S.DB.Exec("INSERT INTO screenings(id,job_id,state,stage,payload,data,created,updated) VALUES(?,?,'accepted','fixture',?,'{}',?,?)", jobID, jobID, []byte("fixture"), store.Now(), store.Now())
+	if e != nil {
+		t.Fatal(e)
+	}
+	for n := 0; n < 110; n++ {
+		result := fixtureProbeResult(n < 10 || n >= 60)
+		raw, _ := json.Marshal(result)
+		eg, _ := json.Marshal(freshEgress("223.5.5.5", "CN"))
+		_, e = h.a.S.DB.Exec("INSERT INTO probe_tasks(id,probe_id,screening_id,lease,target,timeout_ms,state,created,expires,result,egress) VALUES(?,?,?,'fixture','{}',1000,'done',?,?,?,?)", fmt.Sprintf("recent-%03d", n), probeID, jobID, store.Now()+int64(n), store.Now()+300, raw, eg)
+		if e != nil {
+			t.Fatal(e)
+		}
+	}
+	rows, e := h.a.probeViews()
+	if e != nil {
+		t.Fatal(e)
+	}
+	raw, _ := json.Marshal(rows[0])
+	var v map[string]any
+	_ = json.Unmarshal(raw, &v)
+	if v["recentChecks"] != float64(100) || v["recentSuccesses"] != float64(50) {
+		t.Fatalf("recent rate must exclude 10 older successes: %s", raw)
 	}
 }

@@ -24,22 +24,30 @@ type connectivityRuntime struct {
 	tick    time.Duration
 }
 type probeView struct {
-	ID          string       `json:"id"`
-	Name        string       `json:"name"`
-	Role        string       `json:"role"`
-	ExpectedIP  string       `json:"expectedIP"`
-	Enabled     bool         `json:"enabled"`
-	LastSeen    int64        `json:"lastSeen"`
-	Version     string       `json:"version"`
-	Egress      probe.Egress `json:"egress"`
-	Checks      int          `json:"checks"`
-	Successes   int          `json:"successes"`
-	Status      string       `json:"status"`
-	LastCheckAt string       `json:"lastCheckAt"`
+	RecentChecks    int          `json:"recentChecks"`
+	RecentSuccesses int          `json:"recentSuccesses"`
+	ID              string       `json:"id"`
+	Name            string       `json:"name"`
+	Role            string       `json:"role"`
+	ExpectedIP      string       `json:"expectedIP"`
+	Enabled         bool         `json:"enabled"`
+	LastSeen        int64        `json:"lastSeen"`
+	Version         string       `json:"version"`
+	Egress          probe.Egress `json:"egress"`
+	Checks          int          `json:"checks"`
+	Successes       int          `json:"successes"`
+	Status          string       `json:"status"`
+	LastCheckAt     string       `json:"lastCheckAt"`
 }
 
 func (a *App) probeViews() ([]probeView, error) {
-	rows, e := a.S.DB.Query("SELECT id,name,role,expected_ip,enabled,last_seen,version,egress,checks,successes,COALESCE((SELECT json_extract(t.result,'$.completedAt') FROM probe_tasks t WHERE t.probe_id=p.id AND t.state='done' ORDER BY t.created DESC,t.id DESC LIMIT 1),'') FROM connectivity_probes p ORDER BY name,id")
+
+	rows, e := a.S.DB.Query(`SELECT id,name,role,expected_ip,enabled,last_seen,version,egress,checks,successes,
+      COALESCE((SELECT json_extract(t.result,'$.completedAt') FROM probe_tasks t WHERE t.probe_id=p.id AND t.state='done' ORDER BY t.created DESC,t.id DESC LIMIT 1),''),
+      (SELECT count(*) FROM (SELECT id FROM probe_tasks t WHERE t.probe_id=p.id AND t.state='done' ORDER BY t.created DESC,t.id DESC LIMIT 100)),
+      COALESCE((SELECT sum(CASE WHEN json_extract(result,'$.success')=1 AND COALESCE(json_extract(egress,'$.error'),'')='' THEN 1 ELSE 0 END) FROM (SELECT result,egress FROM probe_tasks t WHERE t.probe_id=p.id AND t.state='done' ORDER BY t.created DESC,t.id DESC LIMIT 100)),0)
+      FROM connectivity_probes p ORDER BY name,id`)
+
 	if e != nil {
 		return nil, e
 	}
@@ -48,7 +56,7 @@ func (a *App) probeViews() ([]probeView, error) {
 	for rows.Next() {
 		var p probeView
 		var raw []byte
-		if e = rows.Scan(&p.ID, &p.Name, &p.Role, &p.ExpectedIP, &p.Enabled, &p.LastSeen, &p.Version, &raw, &p.Checks, &p.Successes, &p.LastCheckAt); e != nil {
+		if e = rows.Scan(&p.ID, &p.Name, &p.Role, &p.ExpectedIP, &p.Enabled, &p.LastSeen, &p.Version, &raw, &p.Checks, &p.Successes, &p.LastCheckAt, &p.RecentChecks, &p.RecentSuccesses); e != nil {
 			return nil, e
 		}
 		_ = json.Unmarshal(raw, &p.Egress)
