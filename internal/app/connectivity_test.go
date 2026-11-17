@@ -627,3 +627,12 @@ func TestScreeningReadOnlyReconcileHonorsCredentialRetirementAndRevision(t *test
 		})
 	}
 }
+
+func TestScreeningExplicitCloudRejectionShowsActualSafeReason(t *testing.T) {
+	h, f, b := newScreenHarness(t)
+	f.createErr = &cloud.Error{Status: 429, Code: "provider quota exceeded"}
+	v := runScreen(t, h, b.ID, func(int) bool { return false })
+	if v.State != "failed" || !strings.Contains(v.Reason, "HTTP 429") || !strings.Contains(v.Reason, "provider quota exceeded") || f.replacements != 0 {
+		t.Fatalf("cloud rejection hidden or retried: %+v", v)
+	}
+}

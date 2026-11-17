@@ -460,7 +460,16 @@ func (a *App) runScreeningOne(parent context.Context) bool {
 				}
 				v.ResourceID = v.Rounds[idx].Operation.ResourceID
 				v.Resources = mergeScreenResources(v.Resources, v.Rounds[idx].Operation)
-				a.screenEnd(&v, "unknown", "创建结果无法完整核实；不会重发或创建下一台，请只读核实云端")
+				state := "unknown"
+				reason := "创建结果无法完整核实；不会重发或创建下一台，请只读核实云端：" + e.Error()
+				if !cloud.Uncertain(e) && op.ResourceID == "" && len(v.Rounds[idx].Operation.Owned) == 0 && len(op.Owned) == 0 {
+					state = "failed"
+					reason = "云端拒绝或配置检查未通过；不会自动重试：" + e.Error()
+					if len(v.Rounds[idx].Writes) > 0 {
+						v.Rounds[idx].Writes[len(v.Rounds[idx].Writes)-1].State = "failed"
+					}
+				}
+				a.screenEnd(&v, state, reason)
 				return true
 			}
 			if e = saveOp(op); e != nil {
