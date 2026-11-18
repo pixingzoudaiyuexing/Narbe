@@ -306,7 +306,7 @@ export async function linodeDetails(i, acc, v) {
     const s = await read(acc, "instance", { target: i.id });
     if (!container.isConnected) return;
     s.instance.regionName = regionLabel(v.regions, i.region, i.regionName);
-    container.innerHTML = `${instanceSummary(s, acc)}<div class="detail-tabs"><button data-detail="manage">管理</button><button data-detail="transfer">流量</button><button data-detail="stats">运行监控</button><button data-detail="firewall-bind">云防火墙</button></div><div class="detail-content"></div>`;
+    container.innerHTML = `${instanceSummary(s, acc)}<div class="detail-tabs"><button data-detail="manage">管理</button><button data-detail="transfer">流量</button><button data-detail="stats">运行监控</button><button data-detail="firewall-bind">云防火墙</button><button data-detail="ip">公网 IP</button></div><div class="detail-content"></div>`;
     const pane = container.querySelector(".detail-content");
     let seq = 0;
     const show = async (view) => {
@@ -321,6 +321,10 @@ export async function linodeDetails(i, acc, v) {
               (b) =>
                 (b.onclick = () => advancedDialog(s, acc, b.dataset.advanced)),
             );
+          return;
+        }
+        if (view === "ip") {
+          ctx.showIPManagement(i, acc);
           return;
         }
         if (view === "firewall-bind") {

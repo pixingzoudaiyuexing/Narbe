@@ -1187,3 +1187,107 @@ td button.name {
   border: 1px solid var(--line);
   border-radius: 7px;
 }
+
+.ip-management {
+  min-width: 0;
+}
+.ip-addresses {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin: 20px 0;
+  background: var(--line);
+  border: 1px solid var(--line);
+}
+.ip-addresses > div {
+  min-width: 0;
+  padding: 14px;
+  background: var(--white);
+}
+.ip-addresses span,
+.ip-addresses strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.ip-addresses > div > span {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.ip-addresses strong {
+  font-size: 14px;
+  line-height: 1.6;
+}
+.ip-addresses small {
+  color: var(--muted);
+  font-weight: 400;
+}
+.ip-section {
+  border-top: 1px solid var(--line);
+  padding: 18px 0;
+}
+.ip-section h3 {
+  font-size: 15px;
+  margin: 0 0 12px;
+}
+[data-ip-check-panel] {
+  margin-top: 18px;
+}
+.ip-methods {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0;
+}
+.ip-method {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  cursor: pointer;
+}
+.ip-method:has(input:checked) {
+  border-color: var(--brand);
+  background: var(--soft);
+}
+.ip-method.unavailable {
+  background: var(--paper);
+  cursor: default;
+}
+.ip-method input {
+  width: 16px;
+  min-height: 16px;
+  flex: 0 0 16px;
+  margin: 2px 0 0;
+}
+.ip-method span {
+  min-width: 0;
+}
+.ip-method strong,
+.ip-method small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.ip-method small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  margin-top: 3px;
+}
+.ip-method .ip-unavailable {
+  color: var(--danger);
+}
+.ip-job-result {
+  border-top: 1px solid var(--line);
+  margin: 16px 0;
+}
+@media (max-width: 700px) {
+  .ip-addresses {
+    grid-template-columns: 1fr;
+  }
+  .ip-management .dialog-actions {
+    flex-wrap: wrap;
+  }
+}

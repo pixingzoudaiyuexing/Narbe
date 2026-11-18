@@ -114,8 +114,11 @@ export function bindScreening(form, { api }) {
     ].includes(protocol);
     form.querySelector("[data-screening-host]").hidden = ![
       "tls",
+      "http",
       "https",
     ].includes(protocol);
+    form.querySelector("[data-screening-host] label").firstChild.textContent =
+      protocol === "http" ? "HTTP Host（可选）" : "TLS 服务器名（可选）";
     form.querySelector("[data-screening-replacement]").hidden = !replace;
     fields.screeningRisk.required = enabled && replace;
     const p = probes.find((p) => p.id === fields.screeningProbe.value);
@@ -188,7 +191,7 @@ export function bindScreening(form, { api }) {
         controlProbeId: fields.screeningControl.value,
         protocol,
         port: Number(fields.screeningPort.value),
-        serverName: ["tls", "https"].includes(protocol)
+        serverName: ["tls", "http", "https"].includes(protocol)
           ? fields.screeningServerName.value.trim()
           : "",
         path: ["http", "https"].includes(protocol)
@@ -303,6 +306,25 @@ export async function connectivityPage(el, { api, esc, formAction, toast }) {
             )
             .join("")
         : '<p class="empty">尚无探针。先添加探针，再在国内网络中的 Docker 启动。</p>';
+      el.querySelectorAll("[data-screening-id]").forEach((card, index) => {
+        const kind = work.items[index]?.kind;
+        if (kind === "check" || kind === "manual-ip") {
+          card
+            .querySelector("h3")
+            .prepend(kind === "check" ? "手动检测 · " : "换 IP 后检测 · ");
+          card.querySelector("[data-screening-stop]")?.remove();
+        }
+      });
+      el.querySelectorAll(".probe-row").forEach((row, index) => {
+        const p = probes.items[index];
+        if (!p?.id) return;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "danger";
+        button.dataset.probeDelete = p.id;
+        button.textContent = "删除探针";
+        row.querySelector(".row-actions").append(button);
+      });
       for (const [attr, path, method, msg] of [
         [
           "screening-stop",
@@ -317,6 +339,7 @@ export async function connectivityPage(el, { api, esc, formAction, toast }) {
           "已完成只读核实，不重发云写",
         ],
         ["probe-disable", "probes", "POST", "探针已停用"],
+        ["probe-delete", "probes", "DELETE", "探针已删除"],
       ]) {
         el.querySelectorAll(`[data-${attr}]`).forEach(
           (b) =>
@@ -328,10 +351,11 @@ export async function connectivityPage(el, { api, esc, formAction, toast }) {
                   "screening-stop": "/stop",
                   "screening-reconcile": "/reconcile",
                   "probe-disable": "/disable",
+                  "probe-delete": "",
                 }[attr];
                 await api(`${path}/${encodeURIComponent(id)}${suffix}`, {
                   method,
-                  body: {},
+                  ...(method === "DELETE" ? {} : { body: {} }),
                 });
                 toast(msg);
                 await load();
