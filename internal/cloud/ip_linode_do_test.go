@@ -19,6 +19,10 @@ type linIPFixture struct {
 	sourceCount     int
 	quota           bool
 	lost            bool
+	interfaceReject bool
+	interfaceQuota  bool
+	interfaceLost   bool
+	interfaceMutate bool
 	writes          []string
 }
 
@@ -117,7 +121,22 @@ func testLinodeIP(t *testing.T, generation string) (*Linode, *linIPFixture) {
 			if len(body) != 1 || len(list) != 2 || list[0].(map[string]any)["address"] != "8.8.8.8" || list[0].(map[string]any)["primary"] != true || list[1].(map[string]any)["address"] != "auto" {
 				t.Errorf("interface payload lost old IP or changed routing: %#v", body)
 			}
+			if f.interfaceReject {
+				if f.interfaceMutate {
+					f.newIP = "1.1.1.1"
+				}
+				reason := "Additional IPv4 addresses require approval"
+				if f.interfaceQuota {
+					reason = "IPv4 limit exceeded"
+				}
+				screeningJSON(w, 400, map[string]any{"errors": []any{map[string]any{"reason": reason}}})
+				return
+			}
 			f.newIP = "1.1.1.1"
+			if f.interfaceLost {
+				screeningLost(w)
+				return
+			}
 			addresses = append(addresses, map[string]any{"address": f.newIP, "primary": false})
 			screeningJSON(w, 200, map[string]any{"id": 456, "public": map[string]any{"ipv4": map[string]any{"addresses": addresses}}})
 		case "POST /v4/networking/ips/assign":
@@ -179,6 +198,9 @@ func TestLinodeIPAllocationGenerationsAndSingleWrite(t *testing.T) {
 }
 
 func TestLinodeIPQuotaAndLostResponseNeverReplay(t *testing.T) {
+	if errors.Is(linQuotaError(&Error{Status: 400, Code: "Additional IPv4 addresses require approval"}), ErrIPQuota) {
+		t.Fatal("support approval refusal must not trigger quota fallback")
+	}
 	l, f := testLinodeIP(t, "legacy_config")
 	i := Instance{ID: "123", Region: "us-east"}
 	info, err := l.IPInfo(context.Background(), i)
@@ -243,6 +265,105 @@ func TestLinodeReservedAssignmentChecksSourceAndRegion(t *testing.T) {
 	op, done, err = l.ReconcileIPChange(ctx, op)
 	if err != nil || !done || op.IP.NewIP != "9.9.9.9" || op.IP.PrimaryChanged {
 		t.Fatal(op, done, err)
+	}
+}
+
+func TestLinodeInterfaceRejectedRestoresOnlyOriginalRunningInstance(t *testing.T) {
+	for _, original := range []string{"running", "offline", "running-quota"} {
+		t.Run(original, func(t *testing.T) {
+			l, f := testLinodeIP(t, "linode")
+			f.update(func(f *linIPFixture) {
+				f.state = strings.TrimSuffix(original, "-quota")
+				f.interfaceReject = true
+				f.interfaceQuota = strings.HasSuffix(original, "-quota")
+			})
+			i := Instance{ID: "123", Region: "us-east"}
+			info, err := l.IPInfo(context.Background(), i)
+			if err != nil {
+				t.Fatal(err)
+			}
+			op, err := l.BeginIPChange(context.Background(), i, IPChange{Method: "linode-allocate", Snapshot: info.Snapshot, RiskAccepted: true}, "request-token")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var saved Operation
+			ctx := screeningRecord(&saved)
+			done := false
+			for turn := 0; turn < 8 && !done; turn++ {
+				before := len(f.writeList())
+				op, done, err = l.AdvanceIPChange(ctx, op)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(f.writeList())-before > 1 {
+					t.Fatal("multiple writes", f.writeList())
+				}
+				if op.IP.Step == "restore-after-rejection" {
+					read, ok, e := l.ReconcileIPChange(context.Background(), op)
+					if e != nil || ok || read.IP.Step != "restore-after-rejection" || len(f.writeList()) != before+1 {
+						t.Fatal(read, ok, e, f.writeList())
+					}
+					if op.IP.Step == "restore-boot-sent" {
+						read, ok, e := l.ReconcileIPChange(context.Background(), op)
+						if e != nil || !ok || read.IP.Step != "completed" || read.IP.Failure == "" || len(f.writeList()) != before+1 {
+							t.Fatal(read, ok, e, f.writeList())
+						}
+						op, done = read, true
+					}
+				}
+			}
+			if !done || op.IP.Failure == "" || op.IP.NewIP != "" || op.IP.After == nil || op.IP.After.PrimaryIPv4 != "8.8.8.8" || op.IP.After.State != strings.TrimSuffix(original, "-quota") {
+				t.Fatal(op.IP)
+			}
+			writes := f.writeList()
+			if strings.HasPrefix(original, "running") && strings.Join(writes, ",") != "POST /v4/linode/instances/123/shutdown,PUT /v4/linode/instances/123/interfaces/456,POST /v4/linode/instances/123/boot" {
+				t.Fatal(writes)
+			}
+			if original == "offline" && strings.Join(writes, ",") != "PUT /v4/linode/instances/123/interfaces/456" {
+				t.Fatal(writes)
+			}
+			_, again, e := l.AdvanceIPChange(ctx, op)
+			if e != nil || !again || len(f.writeList()) != len(writes) {
+				t.Fatal(e, f.writeList())
+			}
+		})
+	}
+}
+
+func TestLinodeInterfaceRejectChangedOrLostNeverBoots(t *testing.T) {
+	for _, mode := range []string{"changed", "lost"} {
+		t.Run(mode, func(t *testing.T) {
+			l, f := testLinodeIP(t, "linode")
+			f.update(func(f *linIPFixture) {
+				f.interfaceReject = mode == "changed"
+				f.interfaceMutate = mode == "changed"
+				f.interfaceLost = mode == "lost"
+			})
+			i := Instance{ID: "123", Region: "us-east"}
+			info, err := l.IPInfo(context.Background(), i)
+			if err != nil {
+				t.Fatal(err)
+			}
+			op, err := l.BeginIPChange(context.Background(), i, IPChange{Method: "linode-allocate", Snapshot: info.Snapshot, RiskAccepted: true}, "request-token")
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx := screeningRecord(&Operation{})
+			for step := 0; step < 2; step++ {
+				op, _, err = l.AdvanceIPChange(ctx, op)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			op, _, err = l.AdvanceIPChange(ctx, op)
+			if !Uncertain(err) || len(f.writeList()) != 2 || op.IP.Step != "interface-sent" {
+				t.Fatal(op.IP, err, f.writeList())
+			}
+			_, _, err = l.ReconcileIPChange(context.Background(), op)
+			if len(f.writeList()) != 2 {
+				t.Fatal("reconcile dispatched a write", f.writeList())
+			}
+		})
 	}
 }
 

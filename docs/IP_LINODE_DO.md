@@ -6,6 +6,7 @@
 
 - `legacy_config` 增加公网 IPv4：`POST /v4/linode/instances/{id}/ips`，请求 `{"type":"ipv4","public":true}`。这是**额外** IPv4，不替换主地址。新地址必须向支持请求额外配额，额外地址有月费。[官方 API](https://techdocs.akamai.com/linode-api/reference/post-add-linode-ip)
 - `linode` 网络接口代际：`POST /v4/networking/ips` 明确不适用于 Linode Interfaces；已有 public interface 的增址使用 `PUT /v4/linode/instances/{id}/interfaces/{interfaceId}`，`public.ipv4.addresses` 必须列出全部原地址并追加 `{"address":"auto","primary":false}`。遗漏的原地址会被移除。运行中实例先关机，回读确认后更新接口，原本运行的实例再开机。[接口更新 API](https://techdocs.akamai.com/linode-api/reference/put-linode-interface) · [2026-04-09 变更说明](https://techdocs.akamai.com/linode-api/changelog/apr-9-2026-linode-interfaces-and-firewall-templates)
+- 如果上述接口更新收到明确 4xx 拒绝，先回读证明 public interface、全部旧 IPv4 和主地址与写前一致，再持久化恢复阶段，仅对原本运行的实例派发一次开机；原本关机的实例保持关机。响应丢失、5xx、网络配置变化或云端状态不明时不自动恢复，也不重发接口更新。完成恢复仍报告原换 IP 失败。
 - 账号内同地区的保留 IPv4 可用 `POST /v4/networking/ips/assign` 分配给目标；来自其他 Linode 的候选必须明确记录来源，并核实来源仍有另一公网 IPv4。转移会使来源失去此地址。[分配 API](https://techdocs.akamai.com/linode-api/reference/post-assign-ips)
 - 公网地址、代际、主次标记和归属分别通过实例、实例 IP、接口及账号 IP 列表回读。只读 API 不提供可靠的额外 IPv4 剩余额度或最终资源写授权证明，因此界面提示未知，真正的配额拒绝仅在云端明确返回 IPv4 limit/quota 类 400 时归类为 `ErrIPQuota`。权限拒绝、通用 400、超时与响应丢失均不得伪装为配额不足。[IP 列表 API](https://techdocs.akamai.com/linode-api/reference/get-ips) · [IPv4 配额说明](https://techdocs.akamai.com/cloud-computing/docs/managing-ip-addresses-on-a-compute-instance)
 

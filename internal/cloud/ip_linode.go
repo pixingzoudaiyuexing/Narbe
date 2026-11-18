@@ -269,6 +269,8 @@ func (l *Linode) BeginIPChange(ctx context.Context, i Instance, change IPChange,
 			return op, e
 		}
 		op.IP.InterfaceID = v.PublicInterfaceID
+		op.IP.Checkpoint["interfaceSnapshot"] = fingerprint(v.Interfaces)
+		op.IP.Checkpoint["publicSnapshot"] = fingerprint(v.Public)
 	}
 	op.IP.GuestNetworkingRequired = true
 	op.IP.Notice = "新增公网 IPv4 不替换主 IP；需要核实来宾系统网络配置与服务连通性。原 IP 保留，额外 IPv4 可能计费。"
@@ -279,8 +281,8 @@ func linQuotaError(err error) error {
 	var e *Error
 	if errors.As(err, &e) && e.Status == 400 {
 		reason := strings.ToLower(e.Code)
-		if strings.Contains(reason, "quota") || strings.Contains(reason, "ipv4 limit") || strings.Contains(reason, "ip address limit") || strings.Contains(reason, "maximum number of public") || strings.Contains(reason, "additional ip address") {
-			return fmt.Errorf("%w: %v", ErrIPQuota, err)
+		if strings.Contains(reason, "quota") || strings.Contains(reason, "ipv4 limit") || strings.Contains(reason, "ip address limit") || strings.Contains(reason, "maximum number of public") {
+			return fmt.Errorf("%w: %w", ErrIPQuota, err)
 		}
 	}
 	return err
@@ -357,6 +359,34 @@ func (l *Linode) advanceIPChange(ctx context.Context, op Operation, write bool) 
 	if op.IP.Step == "interface-ready" {
 		return l.linDispatchIP(ctx, op, v, write)
 	}
+	if op.IP.Step == "restore-after-rejection" {
+		if err = linRejectedInterfaceUnchanged(op, v); err != nil {
+			return op, false, err
+		}
+		if v.Instance.Status == "running" {
+			return l.linFinishRejectedRestore(ctx, op, write)
+		}
+		if v.Instance.Status != "offline" {
+			return op, false, nil
+		}
+		if !write {
+			return op, false, nil
+		}
+		if err = ipCheckpoint(ctx, &op, "restore-boot-sent", "云端拒绝新增 IPv4，正在恢复原运行状态", "boot", op.ResourceID); err != nil {
+			return op, false, err
+		}
+		err = l.call(ctx, "POST", "/linode/instances/"+op.ResourceID+"/boot", map[string]any{}, nil)
+		return op, false, err
+	}
+	if op.IP.Step == "restore-boot-sent" {
+		if err = linRejectedInterfaceUnchanged(op, v); err != nil {
+			return op, false, err
+		}
+		if v.Instance.Status != "running" {
+			return op, false, nil
+		}
+		return l.linFinishRejectedRestore(ctx, op, write)
+	}
 	if op.IP.Step == "allocation-sent" || op.IP.Step == "assignment-sent" || op.IP.Step == "interface-sent" {
 		if op.IP.NewIP == "" {
 			// A lost allocation response contains no provable address identity.
@@ -401,6 +431,9 @@ func (l *Linode) linDispatchIP(ctx context.Context, op Operation, v linIPView, w
 		return op, false, nil
 	}
 	if op.IP.Method == "linode-allocate" && v.Generation == "linode" {
+		if op.IP.Checkpoint["interfaceSnapshot"] == "" || fingerprint(v.Interfaces) != op.IP.Checkpoint["interfaceSnapshot"] || fingerprint(v.Public) != op.IP.Checkpoint["publicSnapshot"] {
+			return op, false, &Error{Code: "Linode public interface 或地址元数据已变化，未更新"}
+		}
 		before := map[string]bool{}
 		for _, a := range op.IP.Before.Addresses {
 			before[a.Address] = true
@@ -442,7 +475,7 @@ func (l *Linode) linDispatchIP(ctx context.Context, op Operation, v linIPView, w
 			var result LinodeInterface
 			err = l.call(ctx, "PUT", "/linode/instances/"+op.ResourceID+"/interfaces/"+op.IP.InterfaceID, map[string]any{"public": map[string]any{"ipv4": map[string]any{"addresses": addresses}}}, &result)
 			if err != nil {
-				return op, false, linQuotaError(err)
+				return l.linHandleInterfaceRejection(ctx, op, linQuotaError(err))
 			}
 			var body struct {
 				IPv4 struct {
@@ -489,6 +522,88 @@ func (l *Linode) linDispatchIP(ctx context.Context, op Operation, v linIPView, w
 		return op, false, err
 	}
 	return op, false, nil
+}
+
+func linRejectedInterfaceUnchanged(op Operation, v linIPView) error {
+	if op.IP == nil || op.IP.Method != "linode-allocate" || v.Generation != "linode" || v.PublicInterfaceID != op.IP.InterfaceID || op.IP.Checkpoint["interfaceSnapshot"] == "" || op.IP.Checkpoint["publicSnapshot"] == "" || fingerprint(v.Interfaces) != op.IP.Checkpoint["interfaceSnapshot"] || fingerprint(v.Public) != op.IP.Checkpoint["publicSnapshot"] {
+		return &Error{Code: "Linode 接口拒绝后的原网络状态无法完整核实，未恢复开机", Uncertain: true}
+	}
+	if len(v.Public) != len(op.IP.Before.Addresses) {
+		return &Error{Code: "Linode 接口拒绝后公网 IPv4 数量已变化，未恢复开机", Uncertain: true}
+	}
+	before := map[string]bool{}
+	for _, a := range op.IP.Before.Addresses {
+		before[a.Address] = true
+	}
+	for _, a := range v.Public {
+		if !before[a.Address] {
+			return &Error{Code: "Linode 接口拒绝后原公网 IPv4 已变化，未恢复开机", Uncertain: true}
+		}
+	}
+	return nil
+}
+
+func (l *Linode) linHandleInterfaceRejection(ctx context.Context, op Operation, rejected error) (Operation, bool, error) {
+	var ce *Error
+	if !errors.As(rejected, &ce) || ce.Status < 400 || ce.Status >= 500 || Uncertain(rejected) || op.IP.NewIP != "" || len(op.IP.Resources) != 0 {
+		return op, false, rejected
+	}
+	v, err := l.linIPView(ctx, op.ResourceID)
+	if err != nil {
+		return op, false, &Error{Code: "Linode 拒绝接口更新后无法回读原网络；恢复状态未知", Uncertain: true}
+	}
+	if err = linRejectedInterfaceUnchanged(op, v); err != nil {
+		return op, false, err
+	}
+	if v.Instance.Status != "offline" {
+		return op, false, &Error{Code: "Linode 拒绝接口更新后状态不再是原关机状态；未自动开机", Uncertain: true}
+	}
+	op.IP.Failure = rejected.Error()
+	op.IP.Writes[len(op.IP.Writes)-1].State = "rejected"
+	if op.IP.OriginalState == "offline" {
+		info, e := l.IPInfo(ctx, Instance{ID: op.ResourceID, Region: op.Region})
+		if e != nil || info.Snapshot != op.IP.Before.Snapshot || info.State != "offline" {
+			return op, false, &Error{Code: "Linode 拒绝后原本关机的实例配置无法完整核实", Uncertain: true}
+		}
+		op.IP.After = &info
+		if err = ipCheckpoint(ctx, &op, "completed", "云端拒绝新增 IPv4；原本关机的实例与旧地址保持不变", "", ""); err != nil {
+			return op, false, err
+		}
+		return op, true, nil
+	}
+	if op.IP.OriginalState != "running" {
+		return op, false, &Error{Code: "Linode 原运行状态未知，未自动恢复", Uncertain: true}
+	}
+	if err = ipCheckpoint(ctx, &op, "restore-after-rejection", "云端拒绝新增 IPv4，旧接口已核实；待恢复原运行状态", "", ""); err != nil {
+		return op, false, err
+	}
+	return op, false, nil
+}
+
+func (l *Linode) linFinishRejectedRestore(ctx context.Context, op Operation, persist bool) (Operation, bool, error) {
+	info, err := l.IPInfo(ctx, Instance{ID: op.ResourceID, Region: op.Region})
+	if err != nil {
+		return op, false, err
+	}
+	if info.PrimaryIPv4 != op.IP.Before.PrimaryIPv4 || len(info.Addresses) != len(op.IP.Before.Addresses) || info.State != "running" || info.Snapshot != op.IP.Before.Snapshot {
+		return op, false, &Error{Code: "Linode 恢复后原地址或接口配置与操作前不一致", Uncertain: true}
+	}
+	op.IP.After = &info
+	if !persist {
+		if op.IP.Step == "restore-boot-sent" && len(op.IP.Writes) > 0 {
+			op.IP.Writes[len(op.IP.Writes)-1].State = "confirmed"
+		}
+		op.IP.Step, op.IP.Stage = "completed", "云端拒绝新增 IPv4；原实例与旧地址已恢复运行"
+		return op, true, nil
+	}
+	if op.IP.Step == "restore-boot-sent" {
+		if err = ipConfirmed(ctx, &op, "completed", "云端拒绝新增 IPv4；原实例与旧地址已恢复运行"); err != nil {
+			return op, false, err
+		}
+	} else if err = ipCheckpoint(ctx, &op, "completed", "云端拒绝新增 IPv4；原实例与旧地址已恢复运行", "", ""); err != nil {
+		return op, false, err
+	}
+	return op, true, nil
 }
 
 func (l *Linode) linFinishIP(ctx context.Context, op Operation) (Operation, bool, error) {
