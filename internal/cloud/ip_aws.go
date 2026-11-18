@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -192,10 +193,17 @@ func (a *AWS) inspectIP(ctx context.Context, i Instance) (IPInfo, awsIPState, er
 		Account, Credentials, UserData string
 		Instance                       awsIPRawInstance
 	}{state.owner, fingerprint(a.c), state.dataHash, stable})
+	bound := []awsIPAddress{}
+	for _, address := range addresses.Items {
+		if address.Instance == i.ID || state.primaryInterface != "" && address.Interface == state.primaryInterface {
+			bound = append(bound, address)
+		}
+	}
+	sort.Slice(bound, func(x, y int) bool { return bound[x].Allocation < bound[y].Allocation })
 	info.Snapshot = fingerprint(struct {
 		Stable, State, IP, EIP string
 		Addresses              []awsIPAddress
-	}{state.stable, v.State.Name, v.IP, state.primaryEIP, addresses.Items})
+	}{state.stable, v.State.Name, v.IP, state.primaryEIP, bound})
 	return info, state, nil
 }
 
@@ -234,6 +242,9 @@ func (a *AWS) BeginIPChange(ctx context.Context, i Instance, req IPChange, token
 			return op, &Error{Code: "所选 EIP、来源实例或目标地址不匹配"}
 		}
 		op.IP.NewResourceID, op.IP.NewIP, op.IP.SourceInstanceID = chosen.Allocation, chosen.IP, chosen.Instance
+		op.IP.Checkpoint["source-association"] = chosen.Association
+		op.IP.Checkpoint["source-interface"] = chosen.Interface
+		op.IP.Checkpoint["source-private"] = chosen.Private
 	}
 	op.IP.Checkpoint["stable"] = state.stable
 	op.IP.Checkpoint["owner"] = state.owner
@@ -388,6 +399,9 @@ func (a *AWS) advanceIP(ctx context.Context, op Operation, write bool) (Operatio
 			}
 			if selected == nil || selected.IP != op.IP.NewIP || selected.IP == info.PrimaryIPv4 || selected.Instance != op.IP.SourceInstanceID || selected.Association != "" && selected.Instance == "" {
 				return op, false, &Error{Code: "AWS 待关联 EIP 来源或地址已变化", Uncertain: true}
+			}
+			if op.IP.Method == "aws-eip-associate" && (selected.Association != op.IP.Checkpoint["source-association"] || selected.Interface != op.IP.Checkpoint["source-interface"] || selected.Private != op.IP.Checkpoint["source-private"]) {
+				return op, false, &Error{Code: "AWS 所选 EIP 来源关联已变化", Uncertain: true}
 			}
 			if op.IP.Method == "aws-eip-allocate" {
 				if selected.Association != "" {

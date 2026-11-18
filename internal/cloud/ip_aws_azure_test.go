@@ -18,6 +18,7 @@ type awsIPFixture struct {
 	oldID, oldIP                                                    string
 	lostAction                                                      string
 	managedASG                                                      bool
+	unrelatedEIP                                                    string
 	writes                                                          []string
 }
 
@@ -88,6 +89,9 @@ func testAWSIP(t *testing.T, f *awsIPFixture) *AWS {
 			}
 			if f.eipID != "" {
 				fmt.Fprintf(w, `<item><publicIp>%s</publicIp><allocationId>%s</allocationId><domain>vpc</domain><instanceId>%s</instanceId><networkInterfaceId>%s</networkInterfaceId><associationId>%s</associationId><tagSet><item><key>narbe-job</key><value>%s</value></item></tagSet></item>`, f.eipIP, f.eipID, f.eipInstance, f.eipInterface, f.eipAssociation, f.eipTag)
+			}
+			if f.unrelatedEIP != "" {
+				fmt.Fprintf(w, `<item><publicIp>%s</publicIp><allocationId>eipalloc-99999999</allocationId><domain>vpc</domain><instanceId>i-99999999</instanceId><associationId>eipassoc-other</associationId></item>`, f.unrelatedEIP)
 			}
 			fmt.Fprint(w, `</addressesSet></r>`)
 		case "DescribeInstanceAttribute":
@@ -211,6 +215,34 @@ func TestAWSIPAssociateExistingRequiresExactSourceAndNeverReplaysLostWrite(t *te
 	op, done, err := a.ReconcileIPChange(ctx, saved)
 	if err != nil || !done || op.IP.NewIP != "1.1.1.1" || len(f.actions()) != 1 {
 		t.Fatalf("read proof: %v %#v %v", err, op.IP, f.actions())
+	}
+}
+
+func TestAWSIPSnapshotIgnoresUnrelatedEIPButSourceChangeBlocks(t *testing.T) {
+	f := &awsIPFixture{state: "running", ip: "8.8.8.8", root: "ebs", eipID: "eipalloc-12345678", eipIP: "1.1.1.1", eipInstance: "i-87654321", eipAssociation: "eipassoc-source", unrelatedEIP: "9.9.9.9"}
+	a := testAWSIP(t, f)
+	i := Instance{ID: "i-12345678", Region: "us-east-1"}
+	before, err := a.IPInfo(context.Background(), i)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.unrelatedEIP = "9.9.9.8"
+	f.mu.Unlock()
+	after, err := a.IPInfo(context.Background(), i)
+	if err != nil || before.Snapshot != after.Snapshot {
+		t.Fatalf("unrelated EIP changed target snapshot: %v", err)
+	}
+	op, err := a.BeginIPChange(context.Background(), i, IPChange{Method: "aws-eip-associate", Snapshot: before.Snapshot, AllocationID: f.eipID, SourceInstanceID: "i-87654321", RiskAccepted: true}, "job-source-check")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.eipAssociation = "eipassoc-new-source"
+	f.mu.Unlock()
+	_, _, err = a.AdvanceIPChange(screeningRecord(new(Operation)), op)
+	if err == nil || !Uncertain(err) || len(f.actions()) != 0 {
+		t.Fatalf("source binding change allowed write: %v %v", err, f.actions())
 	}
 }
 
