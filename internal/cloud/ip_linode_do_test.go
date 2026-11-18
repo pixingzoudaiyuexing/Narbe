@@ -15,6 +15,7 @@ type linIPFixture struct {
 	generation      string
 	state           string
 	newIP           string
+	existingExtra   string
 	candidateSource bool
 	sourceCount     int
 	quota           bool
@@ -23,6 +24,7 @@ type linIPFixture struct {
 	interfaceQuota  bool
 	interfaceLost   bool
 	interfaceMutate bool
+	reverseOrder    bool
 	writes          []string
 }
 
@@ -49,6 +51,10 @@ func testLinodeIP(t *testing.T, generation string) (*Linode, *linIPFixture) {
 		}
 		public := []any{old}
 		addresses := []any{map[string]any{"address": "8.8.8.8", "primary": true}}
+		if f.existingExtra != "" {
+			public = append(public, map[string]any{"address": f.existingExtra, "linode_id": 123, "region": "us-east", "public": true, "reserved": false, "type": "ipv4"})
+			addresses = append(addresses, map[string]any{"address": f.existingExtra, "primary": false})
+		}
 		if f.newIP != "" {
 			added := map[string]any{"address": f.newIP, "linode_id": 123, "region": "us-east", "public": true, "reserved": false, "type": "ipv4"}
 			if generation == "linode" {
@@ -57,12 +63,23 @@ func testLinodeIP(t *testing.T, generation string) (*Linode, *linIPFixture) {
 			public = append(public, added)
 			addresses = append(addresses, map[string]any{"address": f.newIP, "primary": false})
 		}
+		instanceIPs := []string{"8.8.8.8"}
+		if f.existingExtra != "" {
+			instanceIPs = append(instanceIPs, f.existingExtra)
+		}
+		if f.newIP != "" {
+			instanceIPs = append(instanceIPs, f.newIP)
+		}
+		if f.reverseOrder && len(public) > 1 {
+			public[0], public[1] = public[1], public[0]
+			instanceIPs[0], instanceIPs[1] = instanceIPs[1], instanceIPs[0]
+		}
 		if r.Method != "GET" {
 			f.writes = append(f.writes, r.Method+" "+r.URL.Path)
 		}
 		switch r.Method + " " + r.URL.Path {
 		case "GET /v4/linode/instances/123":
-			screeningJSON(w, 200, map[string]any{"id": 123, "label": "vm", "type": "g6", "image": "linode/debian", "region": "us-east", "status": f.state, "interface_generation": generation, "ipv4": []string{"8.8.8.8"}})
+			screeningJSON(w, 200, map[string]any{"id": 123, "label": "vm", "type": "g6", "image": "linode/debian", "region": "us-east", "status": f.state, "interface_generation": generation, "ipv4": instanceIPs})
 		case "GET /v4/linode/instances/123/ips":
 			screeningJSON(w, 200, map[string]any{"ipv4": map[string]any{"public": public}})
 		case "GET /v4/linode/instances/456":
@@ -146,6 +163,9 @@ func testLinodeIP(t *testing.T, generation string) (*Linode, *linIPFixture) {
 				t.Errorf("assign payload: %#v", body)
 			}
 			f.newIP = "9.9.9.9"
+			if f.candidateSource {
+				f.sourceCount = 1
+			}
 			screeningJSON(w, 200, map[string]any{})
 		default:
 			t.Errorf("unexpected Linode request: %s %s", r.Method, r.URL.String())
@@ -184,8 +204,22 @@ func TestLinodeIPAllocationGenerationsAndSingleWrite(t *testing.T) {
 					t.Fatal("multiple writes in one Advance", f.writeList())
 				}
 			}
-			if !done || op.IP.NewIP != "1.1.1.1" || op.IP.PrimaryChanged || op.IP.After == nil || op.IP.After.PrimaryIPv4 != "8.8.8.8" || len(op.IP.After.Addresses) != 2 {
+			wantPrimary := "8.8.8.8"
+			if generation == "legacy_config" {
+				wantPrimary = ""
+			}
+			if !done || op.IP.NewIP != "1.1.1.1" || op.IP.PrimaryChanged || op.IP.After == nil || op.IP.After.PrimaryIPv4 != wantPrimary || len(op.IP.After.Addresses) != 2 {
 				t.Fatal(op.IP)
+			}
+			if generation == "legacy_config" {
+				for _, a := range op.IP.After.Addresses {
+					if a.Primary || a.Kind != "additional" {
+						t.Fatal("legacy multi-IP claimed a primary", a)
+					}
+				}
+				if !strings.Contains(op.IP.Notice, "主次关系无法") {
+					t.Fatal(op.IP.Notice)
+				}
 			}
 			if generation == "linode" && strings.Join(f.writeList(), ",") != "POST /v4/linode/instances/123/shutdown,PUT /v4/linode/instances/123/interfaces/456,POST /v4/linode/instances/123/boot" {
 				t.Fatal(f.writeList())
@@ -194,6 +228,53 @@ func TestLinodeIPAllocationGenerationsAndSingleWrite(t *testing.T) {
 				t.Fatal(f.writeList())
 			}
 		})
+	}
+}
+
+func TestLinodeLegacyMultipleIPsUnknownPrimaryStableSnapshot(t *testing.T) {
+	l, f := testLinodeIP(t, "legacy_config")
+	f.update(func(f *linIPFixture) { f.existingExtra = "4.4.4.4" })
+	i := Instance{ID: "123", Region: "us-east"}
+	info, err := l.IPInfo(context.Background(), i)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.PrimaryIPv4 != "" || len(info.Addresses) != 2 || len(info.ServiceIPv4) != 2 || !strings.Contains(strings.Join(info.Warnings, " "), "主 IPv4 未知") {
+		t.Fatal(info)
+	}
+	for _, a := range info.Addresses {
+		if a.Primary || a.Kind != "additional" {
+			t.Fatal(a)
+		}
+	}
+	op, err := l.BeginIPChange(context.Background(), i, IPChange{Method: "linode-allocate", Snapshot: info.Snapshot, RiskAccepted: true}, "request-token")
+	if err != nil || op.IP.OldIP == "" {
+		t.Fatal(op, err)
+	}
+	f.update(func(f *linIPFixture) { f.reverseOrder = true })
+	again, err := l.IPInfo(context.Background(), i)
+	if err != nil || again.Snapshot != info.Snapshot {
+		t.Fatal(info.Snapshot, again.Snapshot, err)
+	}
+	ctx := screeningRecord(&Operation{})
+	op, _, err = l.AdvanceIPChange(ctx, op)
+	if err != nil {
+		t.Fatal("array order alone rejected operation", err)
+	}
+	op, done, err := l.AdvanceIPChange(ctx, op)
+	if err != nil || !done || op.IP.After == nil || op.IP.After.PrimaryIPv4 != "" || len(op.IP.After.Addresses) != 3 {
+		t.Fatal(op.IP, done, err)
+	}
+	for _, old := range []string{"4.4.4.4", "8.8.8.8"} {
+		found := false
+		for _, a := range op.IP.After.Addresses {
+			if a.Address == old {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("old IP %s missing after allocation", old)
+		}
 	}
 }
 
@@ -265,6 +346,13 @@ func TestLinodeReservedAssignmentChecksSourceAndRegion(t *testing.T) {
 	op, done, err = l.ReconcileIPChange(ctx, op)
 	if err != nil || !done || op.IP.NewIP != "9.9.9.9" || op.IP.PrimaryChanged {
 		t.Fatal(op, done, err)
+	}
+	source, err := l.linIPView(context.Background(), "456")
+	if err != nil || len(source.Public) != 1 || source.Public[0].Address != "4.4.4.4" {
+		t.Fatal("source did not retain its other address", source, err)
+	}
+	if op.IP.After == nil || len(op.IP.After.Addresses) != 2 {
+		t.Fatal("target lost its original address", op.IP.After)
 	}
 }
 

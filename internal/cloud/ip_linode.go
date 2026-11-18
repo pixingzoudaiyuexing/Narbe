@@ -59,6 +59,7 @@ func (l *Linode) linIPView(ctx context.Context, id string) (linIPView, error) {
 		return v, &Error{Code: "Linode 身份、地区或网络接口代际无法确认"}
 	}
 	v.Instance, v.Generation = instance.linInstance, instance.Generation
+	sort.Strings(v.Instance.IPv4)
 	var ipResponse struct {
 		IPv4 struct {
 			Public []linIP `json:"public"`
@@ -81,6 +82,7 @@ func (l *Linode) linIPView(ctx context.Context, id string) (linIPView, error) {
 	if len(v.Public) == 0 {
 		return v, &Error{Code: "Linode 没有可核实的公网 IPv4"}
 	}
+	sort.Slice(v.Public, func(a, b int) bool { return v.Public[a].Address < v.Public[b].Address })
 	if v.Generation == "linode" {
 		var interfaces struct {
 			Items []LinodeInterface `json:"interfaces"`
@@ -126,16 +128,11 @@ func (l *Linode) linIPView(ctx context.Context, id string) (linIPView, error) {
 		if v.PublicInterfaceID == "" {
 			return v, &Error{Code: "Linode 尚无 public interface"}
 		}
-	} else {
-		for _, ip := range instance.IPv4 {
-			if seen[ip] {
-				v.Primary = ip
-				break
-			}
+	} else if len(v.Public) == 1 {
+		if !contains(v.Instance.IPv4, v.Public[0].Address) {
+			return v, &Error{Code: "Linode 实例公网 IPv4 与地址列表不一致"}
 		}
-		if v.Primary == "" {
-			return v, &Error{Code: "Linode 实例主公网 IPv4 无法确认"}
-		}
+		v.Primary = v.Public[0].Address
 	}
 	return v, nil
 }
@@ -195,7 +192,7 @@ func (l *Linode) IPInfo(ctx context.Context, i Instance) (IPInfo, error) {
 	sort.Slice(info.Addresses, func(a, b int) bool { return info.Addresses[a].Address < info.Addresses[b].Address })
 	sort.Slice(info.AvailableIPs, func(a, b int) bool { return info.AvailableIPs[a].Address < info.AvailableIPs[b].Address })
 	sort.Strings(info.ServiceIPv4)
-	allocate := IPMethod{ID: "linode-allocate", Name: "新增公网 IPv4", Available: v.Instance.Status == "running" || v.Instance.Status == "offline", ExtraCharge: true, Description: "增加额外公网 IPv4；原主 IP 与实例保留。额外地址可能计费，需核实系统网络配置和国内连通性。"}
+	allocate := IPMethod{ID: "linode-allocate", Name: "新增公网 IPv4", Available: v.Instance.Status == "running" || v.Instance.Status == "offline", ExtraCharge: true, Description: "增加额外公网 IPv4；原有公网地址与实例保留。额外地址可能计费，需核实系统网络配置和国内连通性。"}
 	if v.Generation == "linode" {
 		allocate.RequiresStop = v.Instance.Status == "running"
 		allocate.Description += " Linode Interfaces 更新 public interface，运行中实例会先关机，完成后恢复。"
@@ -203,12 +200,15 @@ func (l *Linode) IPInfo(ctx context.Context, i Instance) (IPInfo, error) {
 	if !allocate.Available {
 		allocate.Reason = "实例状态尚不稳定"
 	}
-	assign := IPMethod{ID: "linode-assign", Name: "分配已有保留 IP", Available: len(info.AvailableIPs) > 0, ExtraCharge: true, Description: "将本账号同地区保留 IP 分配到此实例；若地址仍绑定其他实例，原实例将失去此地址。原主 IP 不释放。"}
+	assign := IPMethod{ID: "linode-assign", Name: "分配已有保留 IP", Available: len(info.AvailableIPs) > 0, ExtraCharge: true, Description: "将本账号同地区保留 IP 分配到此实例；若地址仍绑定其他实例，来源实例将失去选中地址，服务可能中断，需明确接受风险。目标原有公网地址不释放。"}
 	if !assign.Available {
 		assign.Reason = "本账号同地区没有可分配的保留公网 IPv4"
 	}
 	info.Methods = append(info.Methods, allocate, assign)
 	info.Warnings = append(info.Warnings, "额外 IPv4 配额及用户资源写权限没有可靠的只读确认接口；云端可能拒绝申请，请先确认支持配额。", "增加地址不会自动更换主 IPv4，来宾系统网络配置、DNS 与服务监听可能需调整；旧 IP 不会自动释放。")
+	if v.Generation == "legacy_config" && len(v.Public) > 1 {
+		info.Warnings = append(info.Warnings, "legacy_config 有多个公网 IPv4，云 API 未提供可信的主次标记；下方列出全部已验证地址，但主 IPv4 未知。")
+	}
 	info.Snapshot = fingerprint(struct {
 		Instance   linInstance
 		Generation string
@@ -273,7 +273,7 @@ func (l *Linode) BeginIPChange(ctx context.Context, i Instance, change IPChange,
 		op.IP.Checkpoint["publicSnapshot"] = fingerprint(v.Public)
 	}
 	op.IP.GuestNetworkingRequired = true
-	op.IP.Notice = "新增公网 IPv4 不替换主 IP；需要核实来宾系统网络配置与服务连通性。原 IP 保留，额外 IPv4 可能计费。"
+	op.IP.Notice = "新增公网 IPv4 不自动替换原有地址；需要核实来宾系统网络配置与服务连通性。原 IP 保留，额外 IPv4 可能计费。"
 	return op, nil
 }
 
@@ -617,7 +617,7 @@ func (l *Linode) linFinishIP(ctx context.Context, op Operation) (Operation, bool
 			found = true
 		}
 	}
-	if !found || info.PrimaryIPv4 == "" {
+	if !found {
 		return op, false, nil
 	}
 	attached := map[string]bool{}
@@ -630,7 +630,10 @@ func (l *Linode) linFinishIP(ctx context.Context, op Operation) (Operation, bool
 		}
 	}
 	op.IP.After = &info
-	op.IP.PrimaryChanged = info.PrimaryIPv4 != op.IP.Before.PrimaryIPv4
+	op.IP.PrimaryChanged = info.PrimaryIPv4 != "" && op.IP.Before.PrimaryIPv4 != "" && info.PrimaryIPv4 != op.IP.Before.PrimaryIPv4
+	if info.NetworkGeneration == "legacy_config" && info.PrimaryIPv4 == "" {
+		op.IP.Notice += " 多公网 IPv4 的主次关系无法由云 API 确认，已保留并回读全部原地址。"
+	}
 	if op.IP.Method == "linode-allocate" && op.IP.PrimaryChanged {
 		return op, false, &Error{Code: "Linode 主 IPv4 意外变化，请人工核实", Uncertain: true}
 	}

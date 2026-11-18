@@ -9,6 +9,7 @@
 - 如果上述接口更新收到明确 4xx 拒绝，先回读证明 public interface、全部旧 IPv4 和主地址与写前一致，再持久化恢复阶段，仅对原本运行的实例派发一次开机；原本关机的实例保持关机。响应丢失、5xx、网络配置变化或云端状态不明时不自动恢复，也不重发接口更新。完成恢复仍报告原换 IP 失败。
 - 账号内同地区的保留 IPv4 可用 `POST /v4/networking/ips/assign` 分配给目标；来自其他 Linode 的候选必须明确记录来源，并核实来源仍有另一公网 IPv4。转移会使来源失去此地址。[分配 API](https://techdocs.akamai.com/linode-api/reference/post-assign-ips)
 - 公网地址、代际、主次标记和归属分别通过实例、实例 IP、接口及账号 IP 列表回读。只读 API 不提供可靠的额外 IPv4 剩余额度或最终资源写授权证明，因此界面提示未知，真正的配额拒绝仅在云端明确返回 IPv4 limit/quota 类 400 时归类为 `ErrIPQuota`。权限拒绝、通用 400、超时与响应丢失均不得伪装为配额不足。[IP 列表 API](https://techdocs.akamai.com/linode-api/reference/get-ips) · [IPv4 配额说明](https://techdocs.akamai.com/cloud-computing/docs/managing-ip-addresses-on-a-compute-instance)
+- legacy_config 有多个公网 IPv4 时，实例 API 的地址数组没有可信的主次标记：`PrimaryIPv4` 留空，所有地址仍以已核实的服务 IPv4 展示，内部仅选一条旧地址作为保留校验锚点。新增地址完成后回读必须保留全部旧地址，不能把数组顺序变化当成主 IP 更换。Linode Interfaces 的 `public.ipv4.addresses[].primary` 则可用于明确主次。[实例字段](https://techdocs.akamai.com/linode-api/reference/get-linode-instance) · [接口字段](https://techdocs.akamai.com/linode-api/reference/get-linode-interface)
 
 ## DigitalOcean
 
