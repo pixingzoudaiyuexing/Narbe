@@ -8,7 +8,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
@@ -25,9 +25,10 @@ jobs:
       - run: python3 release/test_verify_source.py
       - run: python3 release/test_verify_ci.py
       - run: python3 release/test_bundle.py
+      - run: python3 scripts/test_candidate_bundle.py
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - run: npm ci --ignore-scripts
-      - run: npx prettier --check internal/web/assets scripts/browser-test.mjs scripts/browser-regressions.mjs scripts/browser-linode.mjs scripts/browser-startup.mjs scripts/browser-beta5.mjs scripts/browser-task-ux.mjs scripts/browser-connectivity.mjs scripts/format-test.mjs
+      - run: npx prettier --check internal/web/assets scripts/browser-test.mjs scripts/browser-regressions.mjs scripts/browser-linode.mjs scripts/browser-startup.mjs scripts/browser-beta5.mjs scripts/browser-task-ux.mjs scripts/browser-connectivity.mjs scripts/browser-ip-management.mjs scripts/format-test.mjs
       - run: node scripts/format-test.mjs
       - run: npx playwright install --with-deps chromium
       - run: NARBE_BROWSER_TEST=1 go test ./internal/app -run TestBrowser -v -timeout=180s
@@ -62,9 +63,18 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 6
+      - name: Export installable AMD64 manager and Probe candidate
+        run: python3 candidate/build.py --sha "$GITHUB_SHA" --arch amd64 --manager narbe/ci:check --probe narbe-probe/ci:check --out "$RUNNER_TEMP/narbe-candidate-linux-amd64"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: narbe-candidate-linux-amd64
+          path: ${{ runner.temp }}/narbe-candidate-linux-amd64/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
   arm64-runtime:
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
@@ -103,3 +113,12 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 6
+      - name: Export installable ARM64 manager and Probe candidate
+        run: python3 candidate/build.py --sha "$GITHUB_SHA" --arch arm64 --manager narbe/ci:arm64 --probe narbe-probe/ci:arm64 --out "$RUNNER_TEMP/narbe-candidate-linux-arm64"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: narbe-candidate-linux-arm64
+          path: ${{ runner.temp }}/narbe-candidate-linux-arm64/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
