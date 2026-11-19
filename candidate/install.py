@@ -66,6 +66,12 @@ def verify_outer(bundle):
     checksums(outer.read_bytes(), {bundle.name: bundle, "install-candidate.py": script})
 
 
+def canonical_config(value):
+    # Classic Docker inspect materializes zero-valued optional fields; OCI
+    # inspect omits them. Preserve all non-default values, including integer 0.
+    return {k:v for k,v in value.items() if not (v is None or v is False or v == "" or v == [] or v == {})}
+
+
 def verify_bundle(bundle, stage, expected_sha):
     if not SHA.fullmatch(expected_sha):
         raise ValueError("expected source SHA must contain exactly 40 lowercase hex digits")
@@ -88,6 +94,7 @@ def verify_bundle(bundle, stage, expected_sha):
     arch = manifest.get("architecture")
     if arch not in ("amd64", "arm64"):
         raise ValueError("unsupported candidate architecture")
+    manifest["verifiedImages"] = {}
     for role in ("manager", "probe"):
         info = json.loads((stage / f"{role}-image-inspect.json").read_text("utf-8"))
         labels = info.get("Config", {}).get("Labels", {})
@@ -95,7 +102,10 @@ def verify_bundle(bundle, stage, expected_sha):
         title = "Narbe" if role == "manager" else "Narbe Probe"
         if manifest.get(role) != {"tag": wanted, "id": info.get("Id")} or info.get("Os") != "linux" or info.get("Architecture") != arch or labels.get("org.opencontainers.image.revision") != expected_sha or labels.get("io.narbe.project") != "Narbe" or labels.get("org.opencontainers.image.title") != title:
             raise ValueError(f"candidate {role} image identity mismatch")
-        verify_docker_archive(stage / f"{role}-image.tar", wanted, info["Id"])
+        manifest["verifiedImages"][role] = verify_docker_archive(stage / f"{role}-image.tar", wanted, info["Id"])
+        verified = manifest["verifiedImages"][role]
+        if verified["architecture"] != arch or verified["os"] != "linux" or canonical_config(verified["config"]) != canonical_config(info["Config"]):
+            raise ValueError("saved image config differs from source inspect metadata")
     if not re.fullmatch(r"[0-9a-f]{64}", (stage / "BETA5_COMPOSE_SHA256").read_text("ascii").strip()):
         raise ValueError("invalid beta.5 Compose fingerprint")
     return manifest
@@ -123,19 +133,50 @@ def verify_docker_archive(path, tag, image_id):
         config_digest = hashlib.sha256(config_bytes).hexdigest()
         if config_digest != Path(config_name).name.removesuffix(".json"):
             raise ValueError("Docker image archive config digest differs from path")
+        layers = record.get("Layers")
+        if not isinstance(layers, list) or not layers or len(layers) != len(set(layers)) or any(layer not in names for layer in layers):
+            raise ValueError("Docker image archive is incomplete")
+        config = json.loads(config_bytes)
+        rootfs = config.get("rootfs", {})
+        if rootfs.get("type") != "layers" or not isinstance(rootfs.get("diff_ids"), list) or len(rootfs["diff_ids"]) != len(layers):
+            raise ValueError("Docker image config rootfs is incomplete")
+        def member_hash(name):
+            h = hashlib.sha256()
+            with archive.extractfile(name) as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    h.update(chunk)
+            return "sha256:" + h.hexdigest()
+        # Docker save layers are uncompressed tar files. The config binds their
+        # ordered diff IDs, independent of classic/OCI image-ID conventions.
+        for layer, diff_id in zip(layers, rootfs["diff_ids"]):
+            if member_hash(layer) != diff_id:
+                raise ValueError("Docker image layer digest differs from config")
+        allowed_ids = {"sha256:" + config_digest}
         if "index.json" in names:
             index = json.load(archive.extractfile("index.json"))
             manifests = index.get("manifests")
-            if not isinstance(manifests, list) or len(manifests) != 1 or manifests[0].get("digest") != image_id:
-                raise ValueError("Docker OCI index image ID differs from inspect")
-            manifest_blob = "blobs/sha256/" + image_id.removeprefix("sha256:")
-            if manifest_blob not in names or hashlib.sha256(archive.extractfile(manifest_blob).read()).hexdigest() != image_id.removeprefix("sha256:"):
-                raise ValueError("Docker OCI manifest digest differs from inspect")
-        elif config_digest != image_id.removeprefix("sha256:"):
-            raise ValueError("Docker image config ID differs from inspect")
-        layers = record.get("Layers")
-        if not isinstance(layers, list) or not layers or any(layer not in names for layer in layers) or config_name not in names:
-            raise ValueError("Docker image archive is incomplete")
+            if not isinstance(manifests, list) or len(manifests) != 1:
+                raise ValueError("Docker OCI index must contain exactly one image")
+            descriptor = manifests[0]
+            manifest_id = descriptor.get("digest", "")
+            if not re.fullmatch(r"sha256:[0-9a-f]{64}", manifest_id):
+                raise ValueError("Docker OCI manifest digest is invalid")
+            manifest_blob = "blobs/sha256/" + manifest_id[7:]
+            if manifest_blob not in names or member_hash(manifest_blob) != manifest_id:
+                raise ValueError("Docker OCI manifest digest differs from content")
+            image_manifest = json.load(archive.extractfile(manifest_blob))
+            if image_manifest.get("config", {}).get("digest") != "sha256:" + config_digest or image_manifest.get("config", {}).get("size") != len(config_bytes):
+                raise ValueError("Docker OCI manifest config differs from saved image")
+            descriptors = image_manifest.get("layers")
+            if not isinstance(descriptors, list) or len(descriptors) != len(layers):
+                raise ValueError("Docker OCI layer descriptors are incomplete")
+            for descriptor, layer in zip(descriptors, layers):
+                if descriptor.get("digest") != member_hash(layer) or descriptor.get("size") != archive.getmember(layer).size:
+                    raise ValueError("Docker OCI layer differs from saved image")
+            allowed_ids.add(manifest_id)
+        if image_id not in allowed_ids:
+            raise ValueError("Docker image ID differs from verified config/manifest")
+        return {"allowedIds": sorted(allowed_ids), "diffIds": rootfs["diff_ids"], "architecture":config.get("architecture"), "os":config.get("os"), "config":config.get("config",{})}
 
 
 def install_path(raw, mode):
@@ -200,8 +241,10 @@ def verify_loaded(manifest):
         raise ValueError(f"Docker architecture {native} does not match bundle {manifest['architecture']}")
     for role in ("manager", "probe"):
         info = json.loads(docker("image", "inspect", manifest[role]["tag"]).stdout)[0]
-        if info["Id"] != manifest[role]["id"] or info["Architecture"] != native or info["Config"]["Labels"].get("org.opencontainers.image.revision") != manifest["sourceSha"]:
+        verified = manifest["verifiedImages"][role]
+        if info["Id"] not in verified["allowedIds"] or info["Architecture"] != native or info["Os"] != "linux" or canonical_config(info["Config"]) != canonical_config(verified["config"]) or info.get("RootFS", {}).get("Layers") != verified["diffIds"]:
             raise ValueError(f"loaded {role} image differs from verified bundle")
+        manifest[role]["loadedId"] = info["Id"]
 
 
 def ensure_no_project(project, volume):
@@ -347,7 +390,7 @@ def upgrade(target, stage, manifest):
     new = json.loads(docker("inspect", new_id).stdout)[0]
     after = [m for m in new["Mounts"] if m["Destination"] == "/data"]
     new_env = dict(item.split("=", 1) for item in new["Config"].get("Env", []) if "=" in item)
-    if len(after) != 1 or after[0].get("Name") != volume or new["Image"] != manifest["manager"]["id"] or new["HostConfig"].get("PortBindings", {}).get("8080/tcp") != actual or new_env.get("NARBE_ORIGIN") != running_env.get("NARBE_ORIGIN"):
+    if len(after) != 1 or after[0].get("Name") != volume or new["Image"] != manifest["manager"].get("loadedId",manifest["manager"]["id"]) or new["HostConfig"].get("PortBindings", {}).get("8080/tcp") != actual or new_env.get("NARBE_ORIGIN") != running_env.get("NARBE_ORIGIN"):
         raise ValueError("upgraded container image, data volume, port or Origin differs; inspect backup and service")
     write_receipt(target, manifest, "upgrade", previousImage=old_image, backup=str(backup), volume=volume)
     print("升级前完整备份：" + str(backup))

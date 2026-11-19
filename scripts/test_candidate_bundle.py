@@ -24,8 +24,9 @@ def hash_file(path):
 def bundle(base, mutate=None):
     folder = base / "content"
     folder.mkdir()
-    manager_config = b"manager config fixture"
-    probe_config = b"probe config fixture"
+    layer_digest="sha256:"+hashlib.sha256(b"fixture layer").hexdigest()
+    manager_config = json.dumps({"architecture":"amd64","os":"linux","rootfs":{"type":"layers","diff_ids":[layer_digest]},"config":{"Labels":{"io.narbe.project":"Narbe","org.opencontainers.image.title":"Narbe","org.opencontainers.image.revision":SOURCE_SHA}}}).encode()
+    probe_config = json.dumps({"architecture":"amd64","os":"linux","rootfs":{"type":"layers","diff_ids":[layer_digest]},"config":{"Labels":{"io.narbe.project":"Narbe","org.opencontainers.image.title":"Narbe Probe","org.opencontainers.image.revision":SOURCE_SHA}}}).encode()
     manager = {"Id": "sha256:" + hashlib.sha256(manager_config).hexdigest(), "Os": "linux", "Architecture": "amd64", "Config": {"Labels": {"io.narbe.project": "Narbe", "org.opencontainers.image.title": "Narbe", "org.opencontainers.image.revision": SOURCE_SHA}}}
     probe = {"Id": "sha256:" + hashlib.sha256(probe_config).hexdigest(), "Os": "linux", "Architecture": "amd64", "Config": {"Labels": {"io.narbe.project": "Narbe", "org.opencontainers.image.title": "Narbe Probe", "org.opencontainers.image.revision": SOURCE_SHA}}}
     manifest = {"kind": "narbe-offline-candidate", "sourceSha": SOURCE_SHA, "architecture": "amd64", "manager": {"tag": "narbe/candidate:" + SOURCE_SHA, "id": manager["Id"]}, "probe": {"tag": "narbe-probe/candidate:" + SOURCE_SHA, "id": probe["Id"]}}
@@ -127,6 +128,44 @@ class CandidateBundle(unittest.TestCase):
             write([tag], "../unexpected.json")
             with self.assertRaisesRegex(ValueError, "unsafe"):
                 installer.verify_docker_archive(source, tag, image_id)
+
+    def test_oci_index_accepts_config_and_manifest_ids_and_rejects_crosslinks(self):
+        for id_kind in ("config", "manifest"):
+            for tamper in (None, "config", "layer"):
+                with self.subTest(id_kind=id_kind,tamper=tamper), tempfile.TemporaryDirectory() as tmp:
+                    layer=b"real Docker save uncompressed layer fixture"
+                    layer_id="sha256:"+hashlib.sha256(layer).hexdigest()
+                    config=json.dumps({"rootfs":{"type":"layers","diff_ids":[layer_id]}}).encode()
+                    config_id="sha256:"+hashlib.sha256(config).hexdigest()
+                    oci={"schemaVersion":2,"config":{"digest":config_id,"size":len(config)},"layers":[{"digest":layer_id,"size":len(layer)}]}
+                    if tamper=="config":oci["config"]["digest"]="sha256:"+"f"*64
+                    if tamper=="layer":oci["layers"][0]["digest"]="sha256:"+"e"*64
+                    oci_raw=json.dumps(oci).encode();manifest_id="sha256:"+hashlib.sha256(oci_raw).hexdigest()
+                    config_name="blobs/sha256/"+config_id[7:];layer_name="blobs/sha256/"+layer_id[7:]
+                    tag="narbe/candidate:"+SOURCE_SHA
+                    entries={"manifest.json":json.dumps([{"Config":config_name,"RepoTags":[tag],"Layers":[layer_name]}]).encode(),"index.json":json.dumps({"schemaVersion":2,"manifests":[{"digest":manifest_id}]}).encode(),config_name:config,layer_name:layer,"blobs/sha256/"+manifest_id[7:]:oci_raw}
+                    archive=Path(tmp)/"image.tar"
+                    with tarfile.open(archive,"w") as tar:
+                        for name,raw in entries.items():
+                            member=tarfile.TarInfo(name);member.size=len(raw);tar.addfile(member,io.BytesIO(raw))
+                    image_id=config_id if id_kind=="config" else manifest_id
+                    if tamper:
+                        with self.assertRaisesRegex(ValueError,"OCI"):
+                            installer.verify_docker_archive(archive,tag,image_id)
+                    else:
+                        verified=installer.verify_docker_archive(archive,tag,image_id)
+                        self.assertEqual(set(verified["allowedIds"]),{config_id,manifest_id})
+
+    def test_config_binding_and_docker_optional_defaults(self):
+        self.assertEqual(installer.canonical_config({"User":"65532:65532","AttachStdin":False,"Hostname":"","Cmd":None}),{"User":"65532:65532"})
+        self.assertEqual(installer.canonical_config({"StopTimeout":0}),{"StopTimeout":0})
+        with tempfile.TemporaryDirectory() as tmp:
+            def mutate(entries):
+                info=json.loads(entries["manager-image-inspect.json"])
+                info["Config"]["Entrypoint"]=["/altered-entrypoint"]
+                entries["manager-image-inspect.json"]=json.dumps(info).encode()
+            archive=bundle(Path(tmp),mutate)
+            with self.assertRaises(ValueError):self.verify(archive)
 
     def test_install_path_requires_exact_new_name_and_no_symlinks(self):
         with tempfile.TemporaryDirectory() as tmp:

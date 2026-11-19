@@ -2,7 +2,7 @@
 
 这是未发布的开发候选，不是正式版本、GHCR `latest`、Git Tag 或 Release。CI 在 Linux AMD64 和 ARM64 原生 runner 分别完成 manager 容器运行验证、Probe 容器验证和 beta.5 到候选的隔离升级验证后，上传 `narbe-candidate-linux-{amd64,arm64}` Artifact（保留 14 天）。每个 Artifact 含对应架构的 `narbe-candidate-linux-<arch>-<source-sha-prefix>.tar.gz`、`install-candidate.py` 和 `SHA256SUMS`；压缩包内有两个镜像的 `docker save`、镜像 inspect、完整 `SOURCE_SHA`、内层 `SHA256SUMS` 和无构建步骤的 Compose 文件。没有推送候选到公共 Registry。
 
-只从本仓库对应源码提交的成功 CI Run 下载 Artifact。先从 GitHub Run 页面核对完整 40 位 commit SHA 与目标服务器架构；不要只凭文件名或下载链接判断来源。解压 GitHub Artifact 后不要编辑包内文件，在 Artifact 目录执行以下命令。校验先验证外层和内层 SHA256、精确文件集、镜像标签、OCI revision、架构和 `docker save` 内标签。安装时还会在 `docker load` 后回读镜像 ID。需要 Python 3、Docker Engine 和 Docker Compose Plugin；服务器不需要 Go 编译环境。
+只从本仓库对应源码提交的成功 CI Run 下载 Artifact。先从 GitHub Run 页面核对完整 40 位 commit SHA 与目标服务器架构；不要只凭文件名或下载链接判断来源。解压 GitHub Artifact 后不要编辑包内文件，在 Artifact 目录执行以下命令。校验先验证外层和内层 SHA256、精确文件集、镜像标签、OCI revision、架构和 `docker save` 内标签。安装器区分镜像 Config ID 与 OCI Manifest Digest，核对配置、Manifest 对配置的引用及每层有序内容哈希；安装时还会在 `docker load` 后回读允许的镜像 ID、完整容器配置和 RootFS，兼容 Docker Engine 与 Docker Desktop 的不同 ID 展示方式。需要 Python 3、Docker Engine 和 Docker Compose Plugin；服务器不需要 Go 编译环境。
 
 ```bash
 python3 install-candidate.py --bundle ./narbe-candidate-linux-amd64-<sha前12位>.tar.gz \

@@ -71,6 +71,7 @@ def main():
                 tar.add(item, arcname=name, recursive=False)
         shutil.copyfile(SOURCE / "install.py", a.out / "install-candidate.py")
         (a.out / "SHA256SUMS").write_text(f"{sha256(archive)}  {archive.name}\n{sha256(a.out / 'install-candidate.py')}  install-candidate.py\n")
+        subprocess.run([__import__("sys").executable, str(a.out / "install-candidate.py"), "--bundle", str(archive), "--expect-sha", a.sha, "--mode", "fresh", "--install-dir", str(Path(tmp) / "narbe-candidate"), "--check-only"],check=True)
         print(json.dumps({"bundle": archive.name, "architecture": a.arch, "sourceSha": a.sha, "managerId": manager["Id"], "probeId": probe["Id"]}))
 
 
