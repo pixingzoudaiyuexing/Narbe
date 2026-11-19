@@ -273,7 +273,7 @@ func testAzureIP(t *testing.T) (*Azure, *azureIPFixture) {
 	configID := f.nicID + "/ipConfigurations/primary"
 	f.vm = map[string]any{"id": f.vmID, "location": "eastus", "properties": map[string]any{"provisioningState": "Succeeded", "storageProfile": map[string]any{"osDisk": map[string]any{"managedDisk": map[string]any{"id": "disk-1"}}, "dataDisks": []any{map[string]any{"name": "data"}}}, "networkProfile": map[string]any{"networkInterfaces": []any{map[string]any{"id": f.nicID}}}, "instanceView": map[string]any{"statuses": []any{map[string]any{"code": "PowerState/running"}}}}}
 	f.nic = map[string]any{"id": f.nicID, "location": "eastus", "etag": "etag-1", "properties": map[string]any{"virtualMachine": map[string]any{"id": f.vmID}, "networkSecurityGroup": map[string]any{"id": "nsg-1"}, "ipConfigurations": []any{map[string]any{"id": configID, "name": "primary", "properties": map[string]any{"primary": true, "subnet": map[string]any{"id": "subnet-1"}, "publicIPAddress": map[string]any{"id": f.oldID}}}}}}
-	f.old = map[string]any{"id": f.oldID, "location": "eastus", "sku": map[string]any{"name": "Standard"}, "properties": map[string]any{"provisioningState": "Succeeded", "publicIPAllocationMethod": "Static", "publicIPAddressVersion": "IPv4", "ipAddress": "8.8.8.8", "ipConfiguration": map[string]any{"id": configID}}}
+	f.old = map[string]any{"id": f.oldID, "location": "eastus", "tags": map[string]any{"narbe-job": "original-create-token"}, "sku": map[string]any{"name": "Standard"}, "properties": map[string]any{"provisioningState": "Succeeded", "publicIPAllocationMethod": "Static", "publicIPAddressVersion": "IPv4", "ipAddress": "8.8.8.8", "ipConfiguration": map[string]any{"id": configID}}}
 	h := screeningHTTP(t, func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/oauth2/v2.0/token") {
 			screeningJSON(w, 200, map[string]any{"access_token": "test-token", "expires_in": 3600})
@@ -291,7 +291,11 @@ func testAzureIP(t *testing.T) (*Azure, *azureIPFixture) {
 		case r.Method == "GET" && path == f.nicID:
 			screeningJSON(w, 200, f.nic)
 		case r.Method == "GET" && path == f.oldID:
-			screeningJSON(w, 200, f.old)
+			if f.old == nil {
+				screeningJSON(w, 404, map[string]any{"error": map[string]any{"code": "ResourceNotFound"}})
+			} else {
+				screeningJSON(w, 200, f.old)
+			}
 		case r.Method == "GET" && f.next != nil && path == f.next["id"]:
 			screeningJSON(w, 200, f.next)
 		case r.Method == "GET":
@@ -331,6 +335,14 @@ func testAzureIP(t *testing.T) (*Azure, *azureIPFixture) {
 				return
 			}
 			screeningJSON(w, 200, f.nic)
+		case r.Method == "DELETE" && path == f.oldID:
+			f.old = nil
+			if f.lost == "delete" {
+				f.lost = ""
+				screeningLost(w)
+				return
+			}
+			w.WriteHeader(202)
 		default:
 			t.Errorf("unexpected Azure HTTP %s %s", r.Method, path)
 			w.WriteHeader(500)
