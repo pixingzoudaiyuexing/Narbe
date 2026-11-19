@@ -1,13 +1,13 @@
 # 自动筛选公网 IPv4：云厂商策略与证据
 
-核实日期：2026-11-15。仅检索官方 API / 产品文档，开发验证使用本地 HTTP 替身，没有收费云写，也没有把 HTTP 替身等同于云端验收。
+核实日期：2026-11-19。官方 API 研究与 HTTP 合同测试分开记录；无真实收费云写或真实受阻 IP 验收。
 
-| 厂商 | 已实现路径 | 安全边界 / 明确拒绝 |
-| --- | --- | --- |
-| AWS | 原实例 EBS stop → 确认 stopped → 再次核实身份及配置 → start → 确认 running / 公网 IPv4 | 本轮 ClientToken 与 `narbe-job` 标签、准确实例 ID、账号、地区、AMI、规格、根磁盘、子网、密钥、初始化数据一致；仅单 ENI 单私有 IP；DescribeAddresses 证明 ENI 无 EIP。instance-store、EIP、复杂网络或发生外部修改时暂停，不自动删除 VM。 |
-| Azure | 新建独立 Standard / Static IPv4 → 确认 → 精确替换单一 NIC IP configuration 的 Public IP → 核实 → 仅删除已解绑的本轮旧 Public IP → 确认 404 | VM、系统盘、NIC、NSG、订阅和资源组全部按本轮创建账本及标签核实。保留完整 NIC GET 表示，写前重读、发送观测 ETag 的 If-Match，写后比较唯一允许变化。复杂拓扑拒绝，不删 VM、磁盘、NIC、NSG。全部旧新 Public IP 先进入持久化账本。 |
-| Linode | 删除本轮准确实例 ID → GET 404 确认 → 上层工作流另行创建 | 仅本轮标准 legacy_config 新实例、单一普通非 Reserved 公网 IPv4，无附属 Volume、VPC/VLAN、共享 IP、锁、托管集群或新接口代际。API 未返回 `reserved:false` 不能自动删除。任务自建独立防火墙则暂停，避免每轮遗留资源；已有防火墙不被删除。 |
-| DigitalOcean | 删除本轮准确 Droplet ID → GET 404 确认 → 上层工作流另行创建 | 本轮标签、ID、地区、规格和镜像必须一致；检查附属资源、Volume 与 Reserved IP（完整分页读取，核对每个地址的 droplet.id，不以主 IPv4 查询 404 代替）；缺少读取权限、绑定字段缺失或复杂/未知情况暂停。不使用 Rebuild 换 IP，不使用 destroy-all 端点。 |
+| 厂商 | 新建自动筛选 | 已有服务器手动换 IP | 重要边界 |
+| --- | --- | --- | --- |
+| AWS | 普通 EBS 自动公网 IPv4 使用 stop → stopped → start → running → 地址回读 | 同一路径；另支持 EIP 新申请并关联、已有 EIP 重新关联 | 单主 ENI/私有地址，EBS 及实例保留；EIP不因停启改变，旧EIP保留计费；特殊购买、复杂网络明确拒绝，不删已有EC2 |
+| Azure | 增量创建，原 VM 上新建静态 Standard PIP并换绑NIC；新地址检测通过后逐项清理本轮旧PIP | 新建静态 PIP、更新原NIC、完整回读；旧PIP始终保留 | VM、所有磁盘、NSG、VNet、Subnet及NIC其他字段保留；自动清理只接受本轮账本、标签、地区、未引用状态准确匹配的旧PIP，响应未知不重放 |
+| Linode | 优先新增 IPv4；明确配额拒绝且仍为单一普通公网地址的本轮新机可严格核实后删除重建 | legacy 使用实例IP申请；新Interfaces通过public interface全量地址更新，必要时关机并恢复原态；账号内同地区保留IP可重新分配 | 额外IP≠主IP替换，旧IP保留；额度/权限以真实API拒绝为准，unknown不触发删建。已有机不删，多IP主次不明确如实展示；特殊Volume/VPC/VLAN等不自动删除 |
+| DigitalOcean | 普通 Droplet 原始 IPv4 不能原机随机更换；只删除本轮新建且无附属/Reserved绑定的准确ID并确认404后重建 | 支持Reserved IP新建绑定、已有同地区地址重新分配；提供独立创建替代实例 | 原始IPv4与Reserved服务地址分开展示，已有Droplet不删；绑定的Reserved IP当前免地址费，未绑定IPv4按官方价格计费，流量另计 |
 
 所有换 IP 写请求在派发前都必须通过 `WithOperationRecorder` 保存操作、阶段、准确资源 ID 和关联资源账本。缺少 recorder 或保存失败时不发送新写请求。任何写结果未知时保持未确认检查点，再次调用不能重放；只读恢复不能隐式继续关机、开机、删除或新建。
 
@@ -34,12 +34,16 @@
 
 Azure 官方 NIC PUT 合同未明确列出 If-Match 原子条件参数，当前只能把 ETag 作为额外防护，**不声称已证明 Azure 跨控制台原子 CAS**。实现不增加本地账号锁或服务器锁；在写前和写后检查实际云状态与完整快照。写入的完整 GET 表示、If-Match 行为、Standard Public IP 关联及解除速度仍须在另行授权后做真实 Azure E2E。发生无法核实的差异会停止后续删除，新建 Public IP 可能仍计费并保留在账本内。
 
-真实 AWS stop/start、Azure Public IP 交换、Linode / DigitalOcean 删除重建，以及各云收费边界、配额和地址重复概率，均未完成真实写 E2E。Linode 新式 Interfaces / Reserved IP 与附属 Volume 等复杂配置明确失败关闭，未伪装为支持。
+真实 AWS stop/start、Azure Public IP 交换、Linode / DigitalOcean 删除重建，以及各云收费边界、配额和地址重复概率，均未完成真实写 E2E。Linode 新式 Interfaces 和 Reserved IP 已有原机适配与合同测试；附属 Volume 等复杂配置不自动删机。真实配额、IAM、来宾网络配置及云端执行仍需另行验证。
 
 ## 候选镜像验证与交付
 
 本次为功能候选，不修改 beta.5 正式 Tag、GHCR 镜像或发行证据，不创建新正式 Release。正常 CI 继续使用仅 `contents: read` 权限，在原有 Ubuntu 24.04 AMD64 与 Ubuntu 24.04 ARM64 原生 Runner 中分别构建管理端和 Probe，版本标签为 `cn-candidate`，source revision 固定为该次 Git Commit SHA。
 
-两平台分别执行 Probe 实际 HTTPS 注册、心跳、非 root / 只读根文件系统 / 无入站端口、身份持久化、重启与重建检查；仅通过的原生 Probe 镜像会保存到 Actions Artifact：`narbe-probe-linux-amd64`、`narbe-probe-linux-arm64`。每份包含 Docker image tar、image-inspect.json、SOURCE_SHA 和 SHA256SUMS，可下载后先 `sha256sum -c SHA256SUMS` 再 `docker image load --input narbe-probe-linux-<架构>.tar`。Artifacts 保留 14 天，需要 GitHub 仓库访问权限；这不是公开 GHCR 发行。
+两平台分别执行 Probe 实际 HTTPS 注册、心跳、非 root / 只读根文件系统 / 无入站端口、身份持久化、重启与重建检查；通过后的双镜像离线安装包保存为 `narbe-candidate-linux-amd64/arm64`，用法见 [候选安装器](IP_CANDIDATE_INSTALL.md)。独立 Probe 镜像也会保存到 Actions Artifact：`narbe-probe-linux-amd64`、`narbe-probe-linux-arm64`。每份包含 Docker image tar、image-inspect.json、SOURCE_SHA 和 SHA256SUMS，可下载后先 `sha256sum -c SHA256SUMS` 再 `docker image load --input narbe-probe-linux-<架构>.tar`。Artifacts 保留 14 天，需要 GitHub 仓库访问权限；这不是公开 GHCR 发行。
 
 管理端升级回归从当前正式 beta.5 固定镜像开始：`ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.5@sha256:bd27a8523fb2221ab5b66778a4e9408800281dcfc6c7dfc9d543e4117afea070`。测试使用隔离 Compose 项目与 disposable Volume，不触碰 Owner 数据。CI 配置接入不代表远端 CI 已成功；最终交付以实际 Commit 对应的成功 Run 与 Artifact 为准。
+
+## 本轮新增官方 API 依据
+
+AWS AllocateAddress / AssociateAddress、Azure Public IP / NIC 更新的精确来源见 [IP_AWS_AZURE.md](IP_AWS_AZURE.md)；Linode legacy、新Interfaces、保留地址分配以及DO Reserved IP合同见 [IP_LINODE_DO.md](IP_LINODE_DO.md)。Linode 当前分配端点为 `POST /v4/networking/ips/assign`，不是较旧示例中的 `networking/ipv4/assign`。DO地址费依据：[Reserved IP Pricing](https://docs.digitalocean.com/products/networking/reserved-ips/details/pricing/)，不把绑定免费等同于Droplet或流量免费。

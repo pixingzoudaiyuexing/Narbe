@@ -45,6 +45,7 @@ type account struct {
 	Revision int    `json:"revision"`
 }
 type mutation struct {
+	IPChange        *cloud.IPChange     `json:"ipChange,omitempty"`
 	Screening       *screeningConfig    `json:"screening,omitempty"`
 	NetworkRevision int                 `json:"networkRevision,omitempty"`
 	Advanced        *cloud.LinodeChange `json:"advanced,omitempty"`
@@ -234,6 +235,8 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case path == "probes" || strings.HasPrefix(path, "probes/"):
 		a.probesAPI(w, r, strings.TrimPrefix(path, "probes"))
+	case path == "ip" || path == "ip/check":
+		a.ipAPI(w, r, path)
 	case path == "screenings" || strings.HasPrefix(path, "screenings/"):
 		a.screeningsAPI(w, r, strings.TrimPrefix(path, "screenings"))
 	case path == "network":
@@ -572,10 +575,19 @@ func (a *App) accountEdit(w http.ResponseWriter, r *http.Request, id string) {
 }
 func (a *App) validate(ctx context.Context, b mutation) error {
 	if b.Screening != nil {
-		if b.Action != "create" {
-			return errors.New("国内连通性筛选仅适用于本轮新建服务器")
+		if b.Action != "create" && b.Action != "ip-change" {
+			return errors.New("国内检测参数仅用于创建或换 IP 后检测")
 		}
-		if e := a.validateScreening(*b.Screening); e != nil {
+		var e error
+		if b.Action == "ip-change" {
+			if b.Screening.AutoReplace {
+				return errors.New("已有服务器不允许自动删机或重复收费换 IP")
+			}
+			e = a.validateReadOnlyScreening(*b.Screening)
+		} else {
+			e = a.validateScreening(*b.Screening)
+		}
+		if e != nil {
 			return e
 		}
 	}
@@ -611,6 +623,12 @@ func (a *App) validate(ctx context.Context, b mutation) error {
 	}
 	if b.Action != "create" && (b.Spec.UserData != "" || b.Spec.ScriptMode != "" && b.Spec.ScriptMode != "none" || b.Spec.StackScriptID != 0 || b.Spec.StackScriptSnapshot != "" || b.Spec.StackScriptName != "" || len(b.Spec.StackScriptData) > 0 || b.Spec.ScriptCompatibilityAck) {
 		return errors.New("初始化脚本仅可用于新建服务器")
+	}
+	if b.Action == "ip-change" {
+		return a.validateIPChange(ctx, b, p)
+	}
+	if b.IPChange != nil {
+		return errors.New("普通操作不得附带 IP 变更参数")
 	}
 	if cloud.LinodeAction(b.Action) {
 		if acc.Provider != "linode" {

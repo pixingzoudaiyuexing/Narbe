@@ -56,8 +56,15 @@ with tempfile.TemporaryDirectory(prefix='narbe-upgrade-') as tmp:
         db=sqlite3.connect('file:'+str(backup/'data/narbe.db')+'?mode=rw',uri=True)
         settings=db.execute('SELECT key,value FROM settings ORDER BY key').fetchall()
         accounts=db.execute('SELECT id,provider,credentials,revision,retired FROM accounts ORDER BY id').fetchall()
+        jobs=db.execute('SELECT id,state,progress,payload FROM jobs ORDER BY id').fetchall()
+        migration={}
+        tables={row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if 'screenings' in tables:
+            migration['screenings']=[row[1] for row in db.execute('PRAGMA table_info(screenings)')]
+            migration['probes']=[row[1] for row in db.execute('PRAGMA table_info(connectivity_probes)')]
+            migration['tables']=sorted(tables)
         db.close()
-        return key,settings,accounts
+        return key,settings,accounts,jobs,migration
     try:
         (d/'image.env').write_text('NARBE_IMAGE='+a.old_image+'\n')
         docker('volume','create','--label','io.narbe.project=Narbe','--label','io.narbe.disposable=true','--label','com.docker.compose.project='+project,'--label','com.docker.compose.volume=narbe_data',volume);made=True
@@ -96,7 +103,13 @@ with tempfile.TemporaryDirectory(prefix='narbe-upgrade-') as tmp:
         assert 'no-new-privileges:true' in new['HostConfig']['SecurityOpt']
         assert new['HostConfig']['LogConfig']['Config']=={'max-size':'5m','max-file':'3'}
         compose('stop')
-        after=read_snapshot('after');assert before==after,'master.key, password/settings or credential rows changed'
+        after=read_snapshot('after')
+        assert before[0]==after[0] and before[2:4]==after[2:4],'master.key, credentials or historical jobs changed'
+        previous_settings=dict(before[1]);current_settings=dict(after[1])
+        assert 'connectivity_schema_version' not in previous_settings and current_settings.pop('connectivity_schema_version',None)=='2'
+        assert previous_settings==current_settings,'original password or encrypted proxy settings changed'
+        assert before[4]=={} and 'next_run' in after[4]['screenings'] and 'deleted' in after[4]['probes']
+        assert {'screening_controls','probe_tasks','probe_enrollments'}.issubset(after[4]['tables'])
         compose('up','-d','--no-build','--pull','never','--force-recreate','--wait')
         assert login(replacement)[0]==200
         print('PASS: real previous-release -> candidate Compose upgrade and recreation preserve same volume, master.key, password/settings and account credential rows; health/non-root/read-only/security/log rotation verified; no cloud operations.')

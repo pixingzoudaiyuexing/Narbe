@@ -20,6 +20,8 @@ func (a *App) Run(ctx context.Context) {
 	for n := 0; n < 2; n++ {
 		workers.Add(1)
 		go func() { defer workers.Done(); a.screeningLoop(ctx) }()
+		workers.Add(1)
+		go func() { defer workers.Done(); a.controlLoop(ctx) }()
 	}
 	for n := 0; n < workerConcurrency; n++ {
 		workers.Add(1)
@@ -115,6 +117,12 @@ func (a *App) runOne(parent context.Context) bool {
 		}
 		k, _ := cloud.Find(c.Keys, b.Spec.Key)
 		b.Spec.SSHPublicKey = k.Extra["publicKey"]
+	}
+	if b.Action == "ip-change" {
+		if e := a.startIPWorkflow(ctx, id, b, acc, ns); e != nil {
+			a.finish(id, "failed", "原机换 IP 未启动，未发送云写", cloud.Operation{}, e)
+		}
+		return true
 	}
 	if b.Screening != nil {
 		if e := a.startScreening(ctx, id, b, acc, ns); e != nil {

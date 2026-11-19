@@ -78,6 +78,7 @@ type IPOperation struct {
 	GuestNetworkingRequired bool              `json:"guestNetworkingRequired"`
 	PrimaryChanged          bool              `json:"primaryChanged"`
 	AddressRepeated         bool              `json:"addressRepeated"`
+	Failure                 string            `json:"failure,omitempty"`
 	Notice                  string            `json:"notice,omitempty"`
 	// Provider checkpoint contains only bounded identifiers/ETags. Never store
 	// credentials, scripts, passwords or raw provider bodies here.
@@ -97,7 +98,11 @@ func NewIPOperation(i Instance, request IPChange, info IPInfo, token string) (Op
 	if !methodOK {
 		return Operation{}, &Error{Code: "当前实例不支持所选原机换 IP 方式，请查看原因或创建独立替代实例"}
 	}
-	return Operation{ResourceID: i.ID, Region: i.Region, Expected: "ip-change", IP: &IPOperation{Method: request.Method, Step: "validated", Stage: "正在核对公网 IP 配置", RequestID: token, TargetID: i.ID, Region: i.Region, Snapshot: info.Snapshot, OriginalState: info.State, Before: info, OldIP: info.PrimaryIPv4, Selection: request, Writes: []ScreeningWrite{}, Resources: []RelatedResource{}, Checkpoint: map[string]string{}}}, nil
+	anchor := info.PrimaryIPv4
+	if anchor == "" && len(info.Addresses) > 0 {
+		anchor = info.Addresses[0].Address
+	}
+	return Operation{ResourceID: i.ID, Region: i.Region, Expected: "ip-change", IP: &IPOperation{Method: request.Method, Step: "validated", Stage: "正在核对公网 IP 配置", RequestID: token, TargetID: i.ID, Region: i.Region, Snapshot: info.Snapshot, OriginalState: info.State, Before: info, OldIP: anchor, Selection: request, Writes: []ScreeningWrite{}, Resources: []RelatedResource{}, Checkpoint: map[string]string{}}}, nil
 }
 func ipCheckpoint(ctx context.Context, op *Operation, step, stage, action, resource string) error {
 	if op.IP == nil {

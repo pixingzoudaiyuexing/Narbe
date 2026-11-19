@@ -28,7 +28,7 @@ jobs:
       - run: python3 scripts/test_candidate_bundle.py
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - run: npm ci --ignore-scripts
-      - run: npx prettier --check internal/web/assets scripts/browser-test.mjs scripts/browser-regressions.mjs scripts/browser-linode.mjs scripts/browser-startup.mjs scripts/browser-beta5.mjs scripts/browser-task-ux.mjs scripts/browser-connectivity.mjs scripts/browser-ip-management.mjs scripts/format-test.mjs
+      - run: npx prettier --check internal/web/assets scripts/browser-test.mjs scripts/browser-regressions.mjs scripts/browser-linode.mjs scripts/browser-startup.mjs scripts/browser-beta5.mjs scripts/browser-task-ux.mjs scripts/browser-connectivity.mjs scripts/browser-ip-management.mjs scripts/browser-ip-real.mjs scripts/format-test.mjs
       - run: node scripts/format-test.mjs
       - run: npx playwright install --with-deps chromium
       - run: NARBE_BROWSER_TEST=1 go test ./internal/app -run TestBrowser -v -timeout=180s

@@ -107,6 +107,7 @@ type ResourceLedger struct {
 	Resources   []RelatedResource `json:"resources,omitempty"`
 }
 type Operation struct {
+	CreateStep string              `json:"createStep,omitempty"`
 	IP         *IPOperation        `json:"ip,omitempty"`
 	Screening  *ScreeningOperation `json:"screening,omitempty"`
 	Startup    *StartupSummary     `json:"startup,omitempty"`

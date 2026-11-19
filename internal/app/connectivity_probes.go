@@ -46,7 +46,7 @@ func (a *App) probeViews() ([]probeView, error) {
       COALESCE((SELECT json_extract(t.result,'$.completedAt') FROM probe_tasks t WHERE t.probe_id=p.id AND t.state='done' ORDER BY t.created DESC,t.id DESC LIMIT 1),''),
       (SELECT count(*) FROM (SELECT id FROM probe_tasks t WHERE t.probe_id=p.id AND t.state='done' ORDER BY t.created DESC,t.id DESC LIMIT 100)),
       COALESCE((SELECT sum(CASE WHEN json_extract(result,'$.success')=1 AND COALESCE(json_extract(egress,'$.error'),'')='' THEN 1 ELSE 0 END) FROM (SELECT result,egress FROM probe_tasks t WHERE t.probe_id=p.id AND t.state='done' ORDER BY t.created DESC,t.id DESC LIMIT 100)),0)
-      FROM connectivity_probes p ORDER BY name,id`)
+      FROM connectivity_probes p WHERE deleted=0 ORDER BY name,id`)
 
 	if e != nil {
 		return nil, e
@@ -144,7 +144,11 @@ func (a *App) probesAPI(w http.ResponseWriter, r *http.Request, path string) {
 			return
 		}
 		defer tx.Rollback()
-		_, e = tx.Exec("UPDATE connectivity_probes SET enabled=0,token_hash='' WHERE id=?", parts[0])
+		deleted := 0
+		if r.Method == "DELETE" {
+			deleted = 1
+		}
+		_, e = tx.Exec("UPDATE connectivity_probes SET enabled=0,token_hash='',deleted=? WHERE id=?", deleted, parts[0])
 		if e == nil {
 			_, e = tx.Exec("DELETE FROM probe_enrollments WHERE probe_id=?", parts[0])
 		}

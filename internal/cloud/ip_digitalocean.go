@@ -135,7 +135,7 @@ func (d *DigitalOcean) IPInfo(ctx context.Context, i Instance) (IPInfo, error) {
 		info.ServiceIPv4 = []string{primary}
 	}
 	available := targetReserved == "" && (v.Status == "active" || v.Status == "off")
-	allocate := IPMethod{ID: "do-reserved-allocate", Name: "创建 Reserved IP", Available: available, ExtraCharge: true, Description: "创建并绑定额外服务 IPv4。Droplet 原始公网 IPv4 保持不变；Reserved IP 可能计费。"}
+	allocate := IPMethod{ID: "do-reserved-allocate", Name: "创建 Reserved IP", Available: available, ExtraCharge: true, Description: "创建并绑定额外服务 IPv4。Droplet 原始公网 IPv4 保持不变；绑定 Droplet 的 Reserved IP 当前免地址费；保留未绑定 IPv4 按官方价格计费。"}
 	assign := IPMethod{ID: "do-reserved-assign", Name: "分配已有 Reserved IP", Available: available && len(info.AvailableIPs) > 0, ExtraCharge: true, Description: "将本账号同地区 Reserved IP 绑定到此 Droplet；原始公网 IPv4 不变。若来自其他 Droplet，原实例服务地址将被迁走。"}
 	if targetReserved != "" {
 		allocate.Reason = "此 Droplet 已绑定 Reserved IP；每台只能绑定一个，请先单独处理原地址"
@@ -147,7 +147,7 @@ func (d *DigitalOcean) IPInfo(ctx context.Context, i Instance) (IPInfo, error) {
 		assign.Reason = "本账号同地区没有可分配的 Reserved IP"
 	}
 	info.Methods = append(info.Methods, allocate, assign)
-	info.Warnings = append(info.Warnings, "Reserved IP 不会替换 Droplet 原始公网 IPv4；实际服务地址需由 DNS、入口或客户端切换。", "Reserved IP 配额和创建权限需由云端验证；若新地址保留，可能产生额外费用。")
+	info.Warnings = append(info.Warnings, "Reserved IP 不会替换 Droplet 原始公网 IPv4；实际服务地址需由 DNS、入口或客户端切换。", "Reserved IP 配额和创建权限需由云端验证；绑定 Droplet 当前免地址费，未绑定 IPv4 可能收费，流量另按账单计费。")
 	info.Snapshot = fingerprint(struct {
 		ID                                int
 		Region, Status, Primary, Reserved string

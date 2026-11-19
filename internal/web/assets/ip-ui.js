@@ -77,10 +77,13 @@ export function ipJobResult(job, esc) {
   const after = ip.after || {};
   const oldIP = ip.oldIP || before.primaryIPv4 || "未确认";
   const newIP = ip.newIP || after.primaryIPv4 || "未确认";
-  const primary = ip.primaryChanged
-    ? "原始公网 IP 已变化"
-    : "原始公网 IP 未变化；新增地址不会自动成为原始公网 IP";
-  return `<div class="ip-job-result"><dl class="summary"><dt>原始 IP</dt><dd class="mono">${esc(oldIP)}</dd><dt>新地址</dt><dd class="mono">${esc(newIP)}</dd><dt>实际结果</dt><dd>${esc(primary)}</dd>${list(after.serviceIPv4).length ? `<dt>对外服务 IP</dt><dd class="mono">${list(after.serviceIPv4).map(esc).join(" / ")}</dd>` : ""}</dl>${ip.addressRepeated || (oldIP === newIP && newIP !== "未确认") ? '<p class="notice">云端再次分配了相同 IP，没有取得不同的新地址。</p>' : ""}${ip.notice ? `<p class="notice">${esc(ip.notice)}</p>` : ""}${ip.guestNetworkingRequired ? '<p class="notice">新地址已分配，但服务器内的网络配置可能需要更新，业务可用性尚未确认。</p>' : ""}</div>`;
+  const primary =
+    !before.primaryIPv4 || !after.primaryIPv4
+      ? "主次地址未确认；请核对已保留的地址集合"
+      : ip.primaryChanged
+        ? "原始公网 IP 已变化"
+        : "原始公网 IP 未变化；新增地址不会自动成为原始公网 IP";
+  return `<div class="ip-job-result"><dl class="summary"><dt>${before.primaryIPv4 ? "原始 IP" : "原有地址（主次未确认）"}</dt><dd class="mono">${esc(oldIP)}</dd><dt>新地址</dt><dd class="mono">${esc(newIP)}</dd><dt>实际结果</dt><dd>${esc(primary)}</dd>${list(after.serviceIPv4).length ? `<dt>对外服务 IP</dt><dd class="mono">${list(after.serviceIPv4).map(esc).join(" / ")}</dd>` : ""}</dl>${ip.addressRepeated || (oldIP === newIP && newIP !== "未确认") ? '<p class="notice">云端再次分配了相同 IP，没有取得不同的新地址。</p>' : ""}${ip.notice ? `<p class="notice">${esc(ip.notice)}</p>` : ""}${ip.guestNetworkingRequired ? '<p class="notice">新地址已分配，但服务器内的网络配置可能需要更新，业务可用性尚未确认。</p>' : ""}</div>`;
 }
 
 export function openIPManagement(instance, acc, deps) {

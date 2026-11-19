@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -103,7 +104,7 @@ func TestBrowserIPManagement(t *testing.T) {
 			jobs++
 			reply(w, 202, map[string]any{"id": "manual-ip-job"})
 		case r.URL.Path == "/api/jobs" && r.Method == "GET":
-			reply(w, 200, []any{map[string]any{"id": "manual-ip-job", "accountId": ids["linode"], "action": "ip-change", "region": "r", "target": "instance-linode", "name": "linode-server", "state": "succeeded", "created": now, "result": map[string]any{"ip": map[string]any{"oldIP": "198.51.100.10", "newIP": "198.51.100.10", "primaryChanged": false, "addressRepeated": true, "after": map[string]any{"primaryIPv4": "198.51.100.10", "serviceIPv4": []string{"198.51.100.30"}}, "notice": "旧 IP 保留"}}}})
+			reply(w, 200, []any{map[string]any{"id": "manual-ip-job", "accountId": ids["linode"], "action": "ip-change", "region": "r", "target": "instance-linode", "name": "linode-server", "state": "succeeded", "created": now, "result": map[string]any{"ip": map[string]any{"before": map[string]any{"primaryIPv4": "198.51.100.10"}, "oldIP": "198.51.100.10", "newIP": "198.51.100.10", "primaryChanged": false, "addressRepeated": true, "after": map[string]any{"primaryIPv4": "198.51.100.10", "serviceIPv4": []string{"198.51.100.30"}}, "notice": "旧 IP 保留"}}}})
 		case r.URL.Path == "/api/screenings" && r.Method == "GET":
 			reply(w, 200, map[string]any{"items": []any{map[string]any{"id": "manual-check-id", "kind": "check", "provider": "linode", "region": "r", "state": "accepted", "stage": "国内可用", "updated": now, "rounds": []any{}}, map[string]any{"id": "post-check-id", "kind": "manual-ip", "provider": "linode", "region": "r", "state": "accepted", "stage": "新 IP 检测通过", "updated": now, "rounds": []any{}}}})
 		default:
@@ -148,5 +149,36 @@ func TestBrowserIPManagement(t *testing.T) {
 	}
 	if h.fake.calls != 0 {
 		t.Fatal("unexpected cloud writes", h.fake.calls)
+	}
+}
+
+// This path uses the actual /api/ip, confirmation, job queue, SQLite scheduler
+// and IPProvider interface. Only the cloud API effects are isolated fixtures.
+func TestBrowserIPManagementRealBackend(t *testing.T) {
+	if os.Getenv("NARBE_BROWSER_TEST") != "1" {
+		t.Skip("set NARBE_BROWSER_TEST=1")
+	}
+	h, f, _ := ipHarness(t)
+	server := httptest.NewUnstartedServer(h.a.Handler())
+	h.a.Origin = "http://" + server.Listener.Addr().String()
+	server.Start()
+	defer server.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); h.a.Run(ctx) }()
+	defer func() { cancel(); <-done }()
+	repo, _ := filepath.Abs("../..")
+	cmd := exec.Command("node", filepath.Join(repo, "scripts/browser-ip-real.mjs"), server.URL)
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "NARBE_TEST_PASSWORD="+testPassword)
+	output, e := cmd.CombinedOutput()
+	t.Log(string(output))
+	if e != nil {
+		t.Fatal(e)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.creates != 0 || f.replacements != 1 {
+		t.Fatal("unexpected fixture writes", f.creates, f.replacements)
 	}
 }

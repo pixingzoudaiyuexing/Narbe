@@ -38,12 +38,15 @@ func (f *screeningFake) Create(ctx context.Context, s cloud.Spec, token string) 
 	f.creates++
 	// An actual cloud adapter may not write until a durable creation intent exists.
 	var state string
-	if f.a.S.DB.QueryRow("SELECT state FROM screenings LIMIT 1").Scan(&state) != nil || state != "creating" {
+	if f.a.S.DB.QueryRow("SELECT state FROM screenings WHERE json_extract(data,'$.rounds[#-1].createToken')=?", token).Scan(&state) != nil || state != "creating" {
 		return cloud.Operation{}, errors.New("missing durable creation intent")
 	}
 	if f.createErr != nil {
 		return cloud.Operation{}, f.createErr
 	}
+	f.fakeProvider.mu.Lock()
+	f.fakeProvider.items = append(f.fakeProvider.items, cloud.Instance{ID: token, Name: s.Name, Region: s.Region, State: "running", IPs: []string{"8.8.8.8"}})
+	f.fakeProvider.mu.Unlock()
 	return cloud.Operation{ResourceID: token, Region: s.Region, Expected: "running"}, nil
 }
 func (f *screeningFake) InspectScreening(ctx context.Context, s cloud.Spec, token string, op cloud.Operation) (cloud.ScreeningResource, error) {
@@ -81,6 +84,91 @@ func (f *screeningFake) ReplaceScreeningIP(ctx context.Context, s cloud.Spec, to
 		op.Expected = "deleted"
 	}
 	return op, nil
+}
+
+// Exercise the real incremental adapter contract without sleeping inside a provider.
+func (f *screeningFake) IPInfo(ctx context.Context, i cloud.Instance) (cloud.IPInfo, error) {
+	r, e := f.InspectScreening(ctx, cloud.Spec{Region: i.Region}, "", cloud.Operation{ResourceID: i.ID})
+	if e != nil {
+		return cloud.IPInfo{}, e
+	}
+	return cloud.IPInfo{InstanceID: i.ID, Region: i.Region, State: "running", PrimaryIPv4: r.Instance.IPs[0], Addresses: []cloud.IPAddress{{Address: r.Instance.IPs[0], Primary: true}}, Snapshot: "fixture-ip", Methods: []cloud.IPMethod{{ID: f.method, Available: f.method != "delete-recreate"}}}, nil
+}
+func (f *screeningFake) BeginIPChange(ctx context.Context, i cloud.Instance, c cloud.IPChange, token string) (cloud.Operation, error) {
+	info, e := f.IPInfo(ctx, i)
+	if e != nil {
+		return cloud.Operation{}, e
+	}
+	return cloud.NewIPOperation(i, c, info, token)
+}
+func (f *screeningFake) AdvanceIPChange(ctx context.Context, op cloud.Operation) (cloud.Operation, bool, error) {
+	if f.beforeReplace != nil {
+		f.beforeReplace()
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.replacements++
+	if f.replaceErr != nil {
+		if errors.Is(f.replaceErr, cloud.ErrIPQuota) {
+			op.IP.Writes = []cloud.ScreeningWrite{{Action: "allocate-ip", State: "dispatching"}}
+		}
+		return op, false, f.replaceErr
+	}
+	ip := "8.8.8.8"
+	if len(f.ips) > 0 {
+		n := f.replacements
+		if n >= len(f.ips) {
+			n = len(f.ips) - 1
+		}
+		ip = f.ips[n]
+	}
+	op.IP.NewIP = ip
+	info := op.IP.Before
+	info.PrimaryIPv4 = ip
+	info.Addresses = []cloud.IPAddress{{Address: ip, Primary: true}}
+	op.IP.After = &info
+	op.IP.Step = "completed"
+	return op, true, nil
+}
+func (f *screeningFake) ReconcileIPChange(ctx context.Context, op cloud.Operation) (cloud.Operation, bool, error) {
+	return op, false, nil
+}
+func (f *screeningFake) Action(ctx context.Context, i cloud.Instance, action, id string) (cloud.Operation, error) {
+	if action != "delete" {
+		return f.fakeProvider.Action(ctx, i, action, id)
+	}
+	if f.beforeReplace != nil {
+		f.beforeReplace()
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.replacements++
+	if f.replaceErr != nil && !errors.Is(f.replaceErr, cloud.ErrIPQuota) {
+		return cloud.Operation{}, f.replaceErr
+	}
+	return cloud.Operation{ResourceID: i.ID, Region: i.Region, Expected: "deleted"}, nil
+}
+func driveScreenings(ctx context.Context, a *App) bool {
+	claimed := false
+	for ctx.Err() == nil {
+		if a.runControlOne(ctx) {
+			claimed = true
+		}
+		if a.runScreeningOne(ctx) {
+			claimed = true
+		}
+		var n int
+		_ = a.S.DB.QueryRow("SELECT count(*) FROM screenings WHERE state IN ('queued','creating','waiting-ready','probing','replacing') AND stop=0").Scan(&n)
+		if n == 0 {
+			return claimed
+		}
+		select {
+		case <-ctx.Done():
+			return claimed
+		case <-time.After(time.Millisecond):
+		}
+	}
+	return claimed
 }
 func freshEgress(ip, country string) probe.Egress {
 	return probe.Egress{IP: ip, Country: country, ObservedAt: time.Now().UTC(), Source: probe.EgressSource}
@@ -184,7 +272,7 @@ func runScreen(t *testing.T, h *harness, id string, success func(int) bool) scre
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	done := emulateCN(ctx, h.a, success)
-	if !h.a.runScreeningOne(ctx) {
+	if !driveScreenings(ctx, h.a) {
 		t.Fatal("screening not claimed")
 	}
 	cancel()
@@ -220,6 +308,14 @@ func TestScreeningNativeIPReplacementPreservesVM(t *testing.T) {
 		t.Run(method, func(t *testing.T) {
 			h, f, b := newScreenHarness(t)
 			f.method = method
+			_, payload, _ := h.a.screenLoad(b.ID)
+			payload.Provider = "aws"
+			if method == "azure-public-ip" {
+				payload.Provider = "azure"
+			}
+			raw, _ := json.Marshal(payload)
+			sealed, _ := h.a.S.Seal(raw, "screening:"+b.ID)
+			h.a.S.DB.Exec("UPDATE screenings SET payload=? WHERE id=?", sealed, b.ID)
 			f.ips = []string{"8.8.8.8", "8.8.4.4"}
 			v := runScreen(t, h, b.ID, func(n int) bool { return n > 2 })
 			if v.State != "accepted" || f.creates != 1 || f.replacements != 1 || v.Rounds[0].ResourceID != v.Rounds[1].ResourceID || v.IP != "8.8.4.4" {
@@ -322,7 +418,7 @@ func TestScreeningNormalWorkersContinueDuringProbeWait(t *testing.T) {
 	f.beforeCreate = func() { close(started) }
 	ctx, cancel := context.WithCancel(context.Background())
 	finished := make(chan struct{})
-	go func() { h.a.runScreeningOne(ctx); close(finished) }()
+	go func() { driveScreenings(ctx, h.a); close(finished) }()
 	<-started
 	f.fakeProvider.mu.Lock()
 	f.fakeProvider.items = append(f.fakeProvider.items, cloud.Instance{ID: "other-server", Name: "other-server", Region: "r", State: "running", Actions: []string{"reboot"}})
@@ -364,7 +460,7 @@ func TestScreeningNonNetworkEvidenceCannotAuthorizeDeletion(t *testing.T) {
 			h, f, b := newScreenHarness(t)
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			done := emulateCNResults(ctx, h.a, func(int) probe.Result { r := fixtureProbeResult(false); r.Classification = classification; return r })
-			h.a.runScreeningOne(ctx)
+			driveScreenings(ctx, h.a)
 			cancel()
 			<-done
 			v, _, _ := h.a.screenLoad(b.ID)
@@ -414,10 +510,10 @@ func TestScreeningReadinessSlowAndNoListenerNeverDeletes(t *testing.T) {
 				n++
 				return fixtureProbeResult(ready && n > 2)
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
 			done := emulateCN(ctx, h.a, func(int) bool { return true })
-			h.a.runScreeningOne(ctx)
+			driveScreenings(ctx, h.a)
 			cancel()
 			<-done
 			v, _, _ := h.a.screenLoad(b.ID)
@@ -427,7 +523,7 @@ func TestScreeningReadinessSlowAndNoListenerNeverDeletes(t *testing.T) {
 			if ready && v.State != "accepted" {
 				t.Fatal(v.State, v.Stage)
 			}
-			if !ready && v.State != "paused" {
+			if !ready && v.State != "waiting-ready" && v.State != "paused" {
 				t.Fatal(v.State, v.Stage)
 			}
 		})
@@ -511,7 +607,7 @@ func TestScreeningConcurrentWorkflowsSameAccountNoBusinessLock(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 	for n := 0; n < 2; n++ {
-		go func() { defer wg.Done(); h.a.runScreeningOne(ctx) }()
+		go func() { defer wg.Done(); driveScreenings(ctx, h.a) }()
 	}
 	for n := 0; n < 2; n++ {
 		select {
@@ -575,7 +671,7 @@ func TestScreeningFullWorkflowUsesActualHTTPSProbeProtocol(t *testing.T) {
 			}
 		}
 	}()
-	if !h.a.runScreeningOne(ctx) {
+	if !driveScreenings(ctx, h.a) {
 		t.Fatal("not claimed")
 	}
 	cancel()

@@ -2,13 +2,13 @@
 
 轻量、中文优先的单用户多云服务器工作台。Go + SQLite + 内嵌 Web，单个非 root Docker 容器，无 MySQL、Redis 或前端运行时。
 
-**已发布版本为 [v0.1.0-beta.4](https://github.com/pixingzoudaiyuexing/Narbe/releases/tag/v0.1.0-beta.4)**，已完成应用及发行专项正式审核。测试版不宣称生产稳定；真实云写 E2E 与旧 CloudPanel 完整覆盖仍有缺口。
+**已发布测试版本为 [v0.1.0-beta.5](https://github.com/pixingzoudaiyuexing/Narbe/releases/tag/v0.1.0-beta.5)**，来源为 `80d326fa5ddbd777709a023825d171d3fd69e0ff`。它采用 Owner 明确免除该轮额外人工独立复审的发行路径，不冒称新的 Reviewer PASS；记录见 [Owner 发行记录](docs/BETA5_OWNER_RELEASE.md)。真实云写及自动改密 E2E 仍有缺口，不宣称生产稳定。
 
-> beta.5 已获 Owner 直接发行授权：整合任务调度、单次确认、自动 Linode root 密码重置及 Go 1.26.10，明确免除本轮额外人工 Independent Reviewer 复审，不冒称新的人工 PASS。发行执行与可用附件以 [beta.5 Release](https://github.com/pixingzoudaiyuexing/Narbe/releases/tag/v0.1.0-beta.5) 实际结果为准；来源、自动化验证与免审记录见 [Owner 发行记录](docs/BETA5_OWNER_RELEASE.md)。真实云写和自动改密 E2E 尚未完成，不宣称生产稳定。
+当前 `codex/cn-connectivity` 是后续国内 IP 检测、自动筛选与四云手动换 IP **开发候选**，没有覆盖 beta.5 的 Tag、GHCR 或安装附件。功能和限制见 [完整功能说明](docs/CN_CONNECTIVITY.md)、[四云能力矩阵](docs/CN_PROVIDER_SOURCES.md)。
 
-## 已发布测试版安装
+## 测试版与候选安装
 
-从 [beta.4 Release](https://github.com/pixingzoudaiyuexing/Narbe/releases/tag/v0.1.0-beta.4) 下载已发布安装包。版本与 digest 固定，不使用 latest。安装说明见 [发布说明](release/README.md)；下文保留候选源码开发流程。beta.5 目前没有正式安装包或 GHCR 版本。
+已发布 beta.5 从 [Release](https://github.com/pixingzoudaiyuexing/Narbe/releases/tag/v0.1.0-beta.5) 下载，版本及 Digest 固定，不使用 latest。新功能候选从对应成功 CI Run 下载 AMD64/ARM64 双镜像离线安装包；[候选安装及 beta.5 安全升级](docs/IP_CANDIDATE_INSTALL.md)无需服务器 Go 编译。候选安装包不能当作正式发行，勿直接套用到未核实的现有部署。
 
 ## 安装
 
@@ -18,7 +18,7 @@
 git clone https://github.com/pixingzoudaiyuexing/Narbe.git
 cd Narbe
 # 当前候选实现位于待审核 PR 分支；main 仅为初始化基线
-git switch codex/narbe-phase1
+git switch codex/cn-connectivity
 ./scripts/start.sh
 ```
 
@@ -41,8 +41,8 @@ NARBE_GOPROXY=https://goproxy.cn,direct ./scripts/start.sh
 
 1. 登录，在「云账号」中选择厂商，填写账号备注和凭据。保存时验证认证后的资源读取权限；公共地区列表不能证明凭据有效。
 2. 进入「服务器」默认查询全部地区，按账号、中文地区、状态、名称或IP筛选；地区选择按大洲分组。
-3. 创建时从官方目录选择规格和镜像。填写登录方式、网络等厂商特有配置，重新输入服务器名称后确认费用。
-4. 实例操作依当前状态展示。删除、开关机、重启都需核实目标名称；删除无法撤销。
+3. 创建时从官方目录选择规格和镜像。填写登录方式、网络等厂商特有配置，检查最终配置及费用后直接创建；可选择开启国内 IP 自动筛选。
+4. 实例操作依当前状态展示。后台核实准确资源身份；删除保留一次醒目的风险确认，不要求重复输入名称；删除无法撤销。
 5. 在「操作任务」查看进度。等待中的任务可取消；已提交的云操作无法通过关闭浏览器撤销。
 6. 未派发任务在应用重启时取消；正常等待或校验超过 5 分钟也取消，需重新检查配置并进行新的确认。系统时间异常产生未来时间戳时同样保守取消。已派发任务结果未知时先使用只读核实，再检查云控制台。仅在确认资源实际情况后，使用管理员密码记录人工核实并解除本地阻塞。该操作不会重发、重试或删除云资源。服务商标签可能延迟，未查到资源并不证明请求未发生。
 
