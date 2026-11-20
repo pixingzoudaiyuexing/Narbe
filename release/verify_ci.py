@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only exact-source CI gate for the Owner-authorized beta.5 release.
+"""Read-only exact-source CI gate for the Owner-authorized beta.6 release.
 
 Only the canonical repository's push CI on the release branch is eligible.
 The newest matching run, all its jobs, and all their steps must succeed.
@@ -17,7 +17,7 @@ import urllib.request
 
 REPOSITORY = 'pixingzoudaiyuexing/Narbe'
 WORKFLOW_PATH = '.github/workflows/ci.yml'
-BRANCH = 'codex/narbe-phase1'
+BRANCH = 'codex/cn-connectivity'
 REQUIRED_JOBS = frozenset({'verify', 'arm64-runtime'})
 API_PREFIX = '/repos/' + REPOSITORY + '/'
 MAX_RESPONSE_BYTES = 5 * 1024 * 1024
@@ -50,7 +50,7 @@ class GitHubAPI:
             'Accept': 'application/vnd.github+json',
             'Authorization': 'Bearer ' + self.token,
             'X-GitHub-Api-Version': '2022-11-28',
-            'User-Agent': 'Narbe-beta5-exact-source-ci-gate',
+            'User-Agent': 'Narbe-beta6-exact-source-ci-gate',
         })
         try:
             with self.opener.open(request, timeout=min(30, timeout)) as response:
