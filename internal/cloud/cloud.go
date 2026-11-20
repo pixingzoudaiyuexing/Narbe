@@ -107,17 +107,20 @@ type ResourceLedger struct {
 	Resources   []RelatedResource `json:"resources,omitempty"`
 }
 type Operation struct {
-	Startup    *StartupSummary  `json:"startup,omitempty"`
-	Linode     *LinodeOperation `json:"linode,omitempty"`
-	ResourceID string           `json:"resourceId"`
-	PollURL    string           `json:"pollUrl,omitempty"`
-	ActionID   string           `json:"actionId,omitempty"`
-	Region     string           `json:"region"`
-	Expected   string           `json:"expected"`
-	Owned      []string         `json:"owned,omitempty"`
-	PollKind   string           `json:"pollKind,omitempty"`
-	NextPoll   int64            `json:"nextPoll,omitempty"`
-	Ledger     *ResourceLedger  `json:"ledger,omitempty"`
+	CreateStep string              `json:"createStep,omitempty"`
+	IP         *IPOperation        `json:"ip,omitempty"`
+	Screening  *ScreeningOperation `json:"screening,omitempty"`
+	Startup    *StartupSummary     `json:"startup,omitempty"`
+	Linode     *LinodeOperation    `json:"linode,omitempty"`
+	ResourceID string              `json:"resourceId"`
+	PollURL    string              `json:"pollUrl,omitempty"`
+	ActionID   string              `json:"actionId,omitempty"`
+	Region     string              `json:"region"`
+	Expected   string              `json:"expected"`
+	Owned      []string            `json:"owned,omitempty"`
+	PollKind   string              `json:"pollKind,omitempty"`
+	NextPoll   int64               `json:"nextPoll,omitempty"`
+	Ledger     *ResourceLedger     `json:"ledger,omitempty"`
 }
 type Provider interface {
 	Catalog(context.Context, string, string) (Catalog, error)

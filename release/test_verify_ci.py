@@ -20,7 +20,7 @@ REPO = 'pixingzoudaiyuexing/Narbe'
 
 def run(run_id=42, **overrides):
     value = dict(id=run_id, path='.github/workflows/ci.yml', head_sha=SHA,
-                 head_branch='codex/narbe-phase1', event='push',
+                 head_branch='codex/cn-connectivity', event='push',
                  status='completed', conclusion='success', run_attempt=1,
                  html_url=f'https://github.com/{REPO}/actions/runs/{run_id}')
     value.update(overrides)
@@ -92,11 +92,11 @@ class ExactCI(unittest.TestCase):
                                for name, i in [('verify', 1), ('arm64-runtime', 2), ('extra-check', 3)]]))
         params = api.calls[0][1]
         self.assertEqual(params['head_sha'], SHA)
-        self.assertEqual(params['branch'], 'codex/narbe-phase1')
+        self.assertEqual(params['branch'], 'codex/cn-connectivity')
         self.assertEqual(params['event'], 'push')
 
     def test_accepts_official_workflow_path_with_ref_suffix(self):
-        self.assertEqual(self.verify(API([[run(path='.github/workflows/ci.yml@codex/narbe-phase1')]]))['runId'], 42)
+        self.assertEqual(self.verify(API([[run(path='.github/workflows/ci.yml@codex/cn-connectivity')]]))['runId'], 42)
 
     def test_missing_token_invalid_repository_and_sha_rejected_without_http(self):
         api = API()

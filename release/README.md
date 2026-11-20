@@ -1,6 +1,6 @@
-# Narbe v0.1.0-beta.5 安装、升级与回滚
+# Narbe v0.1.0-beta.6 安装、升级与回滚
 
-**Owner 已授权，发行执行中；是否已发布以实际 GitHub Pre-release、成功工作流和公开附件为准。** Owner 于 2026-11-05 明确免除本轮额外人工独立复审；本次整合及发行不宣称 Independent Reviewer PASS。最终安装包固定精确源码 SHA，并要求同 SHA 的完整 CI、原生双架构运行、回拉及升级验收成功。
+**已获 Owner 授权，发行执行中；是否已发布以实际 GitHub Pre-release、成功工作流和公开附件为准。** 本轮路径为 `owner-authorized-test-release`；本候选没有新的人工独立复审，不宣称 Reviewer PASS，也不借用 beta.5 的免人工复审授权。发布来源固定为已验证功能候选 `8d36215df29d2c1bb854c61afcc00d4582c7fc8f` 的可追溯后继，要求实际发行 SHA 对应的完整 CI、原生双架构运行、公开回拉及升级验收成功。
 
 Go + SQLite、单个非 root 容器，支持 Linux AMD64 / ARM64 和 AWS、Azure、Linode、DigitalOcean。需要 Docker Engine、Compose v2、Bash、curl、tar、sha256sum；服务器无需 Go、Node.js、MySQL 或 Redis，不自动修改系统 Docker。测试版不宣称生产稳定。
 
@@ -9,11 +9,12 @@ Go + SQLite、单个非 root 容器，支持 Linux AMD64 / ARM64 和 AWS、Azure
 在新目录下载安装包并校验，不执行 curl 管道脚本：
 
 ```bash
-mkdir -m 700 narbe-beta5 && cd narbe-beta5
-curl -fL --retry 3 -o narbe-v0.1.0-beta.5-install.tar.gz https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.5/narbe-v0.1.0-beta.5-install.tar.gz
-curl -fL --retry 3 -o SHA256SUMS https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.5/SHA256SUMS
+mkdir -m 700 narbe-beta6 && cd narbe-beta6
+curl -fL --retry 3 -o narbe-v0.1.0-beta.6-install.tar.gz https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.6/narbe-v0.1.0-beta.6-install.tar.gz
+curl -fL --retry 3 -o SHA256SUMS https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.6/SHA256SUMS
+curl -fL --retry 3 -o release-evidence.json https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.6/release-evidence.json
 sha256sum -c SHA256SUMS
-tar -xzf narbe-v0.1.0-beta.5-install.tar.gz
+tar -xzf narbe-v0.1.0-beta.6-install.tar.gz
 ./install.sh
 ```
 
@@ -47,7 +48,7 @@ docker compose --env-file .env --env-file image.env -f compose.yaml restart
 
 可再次运行 `./install.sh`，不覆盖已有数据库或密码文件。日志 5MB×3，禁止长期 debug 或记录凭据。默认项目 `narbe`、Volume `narbe_narbe_data`；实际身份以原部署为准，不能假设示例就是 Owner 环境。
 
-## beta.4 → beta.5（正式发行后）
+## beta.5 → beta.6（正式发行后）
 
 **不要把新包解压覆盖旧目录，也不要在新目录启动一个不同项目。** 只更新原目录的 `image.env`，继续使用原 Compose、`.env`、secrets、项目名和数据 Volume；这样保留端口、Origin、管理员密码及加密云账号。执行前先处理 queued/running，结果未知的云写必须核实；重启取消 queued，不自动重放 unknown。
 
@@ -57,7 +58,7 @@ docker compose --env-file .env --env-file image.env -f compose.yaml restart
 (
 set -euo pipefail
 umask 077
-read -r -p '实际 beta.4 安装目录（绝对路径）: ' old_dir
+read -r -p '实际 beta.5 安装目录（绝对路径）: ' old_dir
 cd "$old_dir"
 old_dir=$(pwd -P)
 test -f .env && test -f image.env && test -f compose.yaml
@@ -67,7 +68,7 @@ if env | grep -q '^COMPOSE_'; then
   echo '检测到 COMPOSE_*；请使用已核实的原部署命令进行等价升级。' >&2; exit 1
 fi
 docker ps -a --filter label=com.docker.compose.service=narbe --format 'table {{.ID}}	{{.Names}}	{{.Image}}'
-read -r -p '上方现有 beta.4 Narbe 容器 ID: ' selected
+read -r -p '上方现有 beta.5 Narbe 容器 ID: ' selected
 container=$(docker inspect --format '{{.Id}}' "$selected")
 project=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "$container")
 workdir=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$container")
@@ -81,6 +82,13 @@ actual=$("${compose[@]}" ps -aq narbe)
 test -n "$actual" && test "$(docker inspect --format '{{.Id}}' "$actual")" = "$container"
 volume=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{if eq .Type "volume"}}{{.Name}}{{end}}{{end}}{{end}}' "$container")
 test -n "$volume"
+# 只接受正式 beta.5 镜像作为此升级命令的起点；不猜测其他候选/定制构建。
+beta5_image=ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.5@sha256:bd27a8523fb2221ab5b66778a4e9408800281dcfc6c7dfc9d543e4117afea070
+docker pull "$beta5_image"
+beta5_id=$(docker image inspect --format '{{.Id}}' "$beta5_image")
+test "$(docker inspect --format '{{.Image}}' "$container")" = "$beta5_id" || {
+  echo '当前镜像不是正式 beta.5；不自动改动，请核实原版本。' >&2; exit 1;
+}
 printf '原目录=%s\n项目=%s\n数据 Volume=%s\n' "$old_dir" "$project" "$volume"
 "${compose[@]}" ps
 # 只显示非敏感的 Origin；不打印密码、数据库或完整环境。
@@ -89,16 +97,17 @@ read -r -p '已核实上述身份，且已处理运行中／未知云任务？�
 test "$confirmed" = yes
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
-curl -fL --retry 3 -o "$stage/narbe-v0.1.0-beta.5-install.tar.gz" https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.5/narbe-v0.1.0-beta.5-install.tar.gz
-curl -fL --retry 3 -o "$stage/SHA256SUMS" https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.5/SHA256SUMS
+curl -fL --retry 3 -o "$stage/narbe-v0.1.0-beta.6-install.tar.gz" https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.6/narbe-v0.1.0-beta.6-install.tar.gz
+curl -fL --retry 3 -o "$stage/SHA256SUMS" https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.6/SHA256SUMS
+curl -fL --retry 3 -o "$stage/release-evidence.json" https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.6/release-evidence.json
 (cd "$stage" && sha256sum -c SHA256SUMS)
-tar -xzf "$stage/narbe-v0.1.0-beta.5-install.tar.gz" -C "$stage" image.env
+tar -xzf "$stage/narbe-v0.1.0-beta.6-install.tar.gz" -C "$stage" image.env
 test "$(wc -l < "$stage/image.env")" -eq 1
-grep -Eq '^NARBE_IMAGE=ghcr[.]io/pixingzoudaiyuexing/narbe:v0[.]1[.]0-beta[.]5@sha256:[0-9a-f]{64}$' "$stage/image.env"
+grep -Eq '^NARBE_IMAGE=ghcr[.]io/pixingzoudaiyuexing/narbe:v0[.]1[.]0-beta[.]6@sha256:[0-9a-f]{64}$' "$stage/image.env"
 # 先拉取已验包中的不可变镜像；此时仍未更改原配置。
 image=$(sed -n 's/^NARBE_IMAGE=//p' "$stage/image.env")
 docker pull "$image"
-backup=$(mktemp -d "$(dirname "$old_dir")/narbe-before-beta5-$(date +%Y%m%d-%H%M%S)-XXXXXX")
+backup=$(mktemp -d "$(dirname "$old_dir")/narbe-before-beta6-$(date +%Y%m%d-%H%M%S)-XXXXXX")
 chmod 700 "$backup"
 "${compose[@]}" stop narbe
 "${compose[@]}" cp narbe:/data "$backup/data"
@@ -121,7 +130,7 @@ printf '请用原管理员密码登录，核对云账号、端口与 Origin。�
 )
 ```
 
-命令只拉取发布镜像，不创建／重装／删除云资源。失败时不要删除备份或 Volume；停止后的失败不会自动启动另一版本，更不会自动重试云任务。升级完成前不删除 beta.4 镜像。密码目录保持 0700、挂载文件按原部署权限保留，不公开上传配置、密码、数据库或 key。
+命令只拉取发布镜像，不创建／重装／删除云资源。失败时不要删除备份或 Volume；停止后的失败不会自动启动另一版本，更不会自动重试云任务。升级完成前不删除 beta.5 镜像。密码目录保持 0700、挂载文件按原部署权限保留，不公开上传配置、密码、数据库或 key。
 
 ## 并发、自动改密和密码输入
 
@@ -131,16 +140,42 @@ Linode root 密码重置自动核实实时状态，必要时关机并确认，�
 
 **真实 Linode 自动改密流程尚未云端 E2E。** 隔离替身证明行为与异常路径，不能替代实际账号权限、事件形态和云时延验收。
 
+## 国内 IP 检测与手动换 IP
+
+创建服务器时可开启“国内 IP 可用性检测”，选择在线国内探针、海外对照、TCP/TLS/HTTP/HTTPS、监听端口、超时、次数、最长时间和估算预算。先核实海外同 IP、同端口已经准备好，再使用连续国内结果判断；没有监听端口、海外失败、探针离线、出口不符或证据不足均不会自动删机。HTTP 可配置随机挑战；不以 ICMP Ping 失败判定被墙，也不自动覆盖用户初始化脚本以安装监听服务。
+
+自动换 IP 只处理本轮新建资源，持久保存每轮准确资源 ID、旧/新 IP、云写检查点和相关账本。等待由 SQLite 定时步骤调度，不占原四个普通 Worker；重启或写响应丢失后只读核实，unknown 不重放。停止和达到上限会保留并展示仍存在的资源，**“停止”不等于已删除或停止计费**。费用为配置预留的估算，不能保证云厂商最终账单。
+
+已有服务器可单独“检测 IP”或“更换 IP”；不自动删除旧机。AWS 支持普通 EBS 动态 IPv4 停启及 EIP，Azure 更换原 NIC 的静态 Public IP，Linode 适配 legacy 与新式 Interfaces 的额外/保留 IPv4，DigitalOcean 支持 Reserved IP 新增或重新分配。**额外 IP、EIP 或 Reserved IP 不是原主 IP 已改变的证明**；请检查页面实际新旧地址、服务地址与来宾网络提示。Azure 手动更换保留原有 Public IP，可能继续计费；只对本轮严格核实且已解除引用的旧地址执行自动清理。复杂网络、配额、权限不足会显示原因，不冒充已完成。
+
+完整能力矩阵与官方依据见仓库 `docs/CN_PROVIDER_SOURCES.md`。真实收费云写、国内受阻 IP 对照和真实云配额/IAM/来宾网络仍未验收。
+
+## Probe Agent：同包公开镜像部署
+
+Probe 是独立可选单容器，不是管理端的数据库或运行时依赖。它不持有云 Token，只主动通过可信 HTTPS 领取检测任务；不需要国内公网入站端口。可部署在国内 Linux AMD64/ARM64 或运行 Docker Desktop 的个人电脑。管理端自己仍为 Go + SQLite 单容器。
+
+在新的探针目录下载并校验上面的公开安装包，解压后得到 `probe-compose.yaml`、`probe-image.env` 和 `install-probe.sh`。运行：
+
+```bash
+./install-probe.sh
+```
+
+按脚本提示填写管理端 HTTPS Origin 和一次性注册凭据；凭据应通过隐藏输入/受限文件传递，不写进命令历史、普通日志或聊天。脚本默认拉取 `probe-image.env` 中 `ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.6-probe@sha256:实际发行digest`，无需 Go 编译或服务器 build。探针身份保存在独立持久化 Volume，身份文件为 `0600`；保留它以便重启沿用身份。安装脚本显示实际 Compose 配置和运行命令，使用同一参数检查状态、日志、停止、重启；不要删除身份 Volume 后复用已消费的注册凭据。
+
+先用容器执行 `egress` 只读出口自检，将实际公网 IP 登记到 Narbe 探针页；国内角色必须独立核实为 CN。端口白名单默认 `22,80,443,8443,8080`，需要其他端口时在探针自己的环境文件精确配置。任何私网、Metadata、保留地址和任意扫描请求都会被拒绝。控制连接和检测有界超时、响应大小与并发，任务租约防重放。健康只证明近期控制面心跳，不等于目标国内可达。
+
+Linux Docker bridge、macOS Docker Desktop、Clash/TUN/VPN 的实际出口可能不同，不能把电脑所在地当作探针出口。改变路由后重新核实容器出口；出口异常或第三方地理证据不可用时显示无法判断，不作为自动删机依据。更完整协议、安全边界和限制见仓库 `docs/PROBE.md`；其中开发候选离线构建步骤属于历史候选，本版安装以上述公开 GHCR 锁定镜像为准。
+
 ## 回滚限制
 
-**beta.4 不认识 beta.5 的云 API 代理设置。保留 beta.4 镜像不等于已验证 beta.5 数据可无损回滚。** beta.4 可能使用旧版出口行为，不能假定仍经 beta.5 代理。
+**beta.5 不认识 beta.6 新增的探针与 IP 工作流持久化状态。保留 beta.5 镜像不等于 beta.6 数据可无损回滚。** 不要让旧版本接手进行中的自动筛选任务；停机前先停止流程并核实仍存在的云资源和未知云写。
 
-本轮验证的是 beta.4→beta.5，不是升级后数据库的反向兼容。必要回滚时先停止 beta.5 并另存升级后数据，依据完整的**升级前 beta.4 备份**恢复到隔离 Volume 核实，再由操作者决定切换原项目。只还原旧镜像不保证兼容；不要覆盖或删除唯一数据库、master.key，不能在有未核实云写时自动回滚或重试。
+本轮验证的是 beta.5→beta.6，不是升级后数据库的反向兼容。必要回滚时先停止 beta.6 并另存升级后数据，依据完整的**升级前 beta.5 备份**恢复到隔离 Volume 核实，再由操作者决定切换原项目。只还原旧镜像不保证兼容；不要覆盖或删除唯一数据库、master.key，不能在有未核实云写时自动回滚或重试。
 
 禁止 `docker compose down -v`、删除正式 Volume、全局 prune、丢弃／替换唯一 master.key。缺少原 key 不能解密凭据。安装器不执行云创建、重装、删除或资金操作。
 
 ## 来源与发行证据
 
-正式安装包名称 `narbe-v0.1.0-beta.5-install.tar.gz`，附件包括 `SHA256SUMS` 和 `release-evidence.json`。镜像为 `ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.5@sha256:实际发行digest`，不能使用占位符安装。
+正式安装包为 `narbe-v0.1.0-beta.6-install.tar.gz`，公开附件包括 `SHA256SUMS` 和 `release-evidence.json`，无需登录 Actions 下载离线候选。管理端和 Probe 都属于公开 GHCR 的同一 Narbe Package，分别使用 `v0.1.0-beta.6` 与 `v0.1.0-beta.6-probe`，两者均由包内环境文件固定 Index Digest，不能使用占位符安装或推导为 latest。
 
-包内 `release.json` 与外部证据明确记录 `releaseMode=owner-authorized-manual-review-waiver`、Owner 2026-11-05 免人工复审授权、实际 `sourceSha`／`authorizedSourceSha`、已验证应用基线 `3216f1e9e5151338427c7ceee5fe0090fdebf1e4`、整合 PR #2 HEAD `ec66fd4e90f38a1940b8cdf662868bd1a5a0a70e`、同源码成功 CI、Index／两架构 Manifest Digest 和发行 Actions URL。新源码不填写虚假的 `applicationReviewedSha` 或 `releaseReviewedSha`。构建只接受固定授权源码且无额外／忽略构建输入，GHCR 写权限受来源和成功测试约束。公开可安装状态以成功发行工作流、公开镜像和实际可下载附件为准。
+包内 `release.json` 与外部证据记录 `releaseMode=owner-authorized-test-release`、`manualIndependentReview=not-performed-for-this-candidate`、Owner 发布授权、已验证功能基线、实际固定源码 SHA、同源码成功 CI、管理端及 Probe 的 Index/两架构 Manifest Digest 和发行 Actions URL。不填写虚假的 Reviewer PASS 或已审核 SHA。GHCR 写权限只在来源与前置验证成功后授予发布 Job，不覆盖历史版本，不自动升级 Owner 环境。公开可安装状态以成功发行工作流、公开匿名回拉和实际可下载附件为准。

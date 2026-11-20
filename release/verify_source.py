@@ -92,7 +92,7 @@ def clean_build_inputs(head):
         raise ValueError('Tracked working tree differs from the authorized release')
     raw = subprocess.check_output(['git', 'ls-files', '--others', '-z', '--',
                                    'cmd', 'internal', 'scripts', 'release', '.github',
-                                   'Dockerfile', '.dockerignore', 'compose.yaml',
+                                   'Dockerfile', 'Dockerfile.probe', '.dockerignore', 'compose.yaml', 'candidate', 'deploy',
                                    'go.mod', 'go.sum', 'package.json', 'package-lock.json'])
     if raw:
         raise ValueError('Untracked executable/build input: ' +
@@ -166,16 +166,70 @@ def verify(app, release, head):
             'postReviewTextChanges': sorted(changed(release, head))}
 
 
+# beta.6 is an explicit Owner test-release authorization, not a claim that the
+# candidate received a new formal Independent Reviewer verdict.
+TEST_VERSION='v0.1.0-beta.6'
+TEST_MODE='owner-authorized-test-release'
+TEST_APPLICATION_BASELINE='8d36215df29d2c1bb854c61afcc00d4582c7fc8f'
+TEST_RELEASE_FILES=frozenset({
+ '.github/workflows/release.yml',
+ 'release/VERSION','release/publish.sh','release/verify_source.py','release/test_verify_source.py',
+ 'release/verify_ci.py','release/test_verify_ci.py','release/bundle.py','release/test_bundle.py',
+ 'release/OWNER_AUTHORIZATION.json','release/README.md','release/NOTES.md',
+ 'release/probe-compose.yaml','release/install-probe.sh','release/test_probe_install.py','release/verify_images.py','release/test_verify_images.py',
+ 'README.md','docs/BETA6_RELEASE.md','internal/web/assets/connectivity-ui.js',
+})
+# The sole application-file exception is a literal deployment-instructions
+# update. Populated with the exact reviewed old/new text; arbitrary JS fails.
+TEST_UI_REPLACEMENTS=[['使用本次构建的候选镜像 <span class="mono">narbe-probe:cn-candidate</span>（尚未正式发布）。管理端必须可通过可信 HTTPS 访问。', '使用正式测试版 <span class="mono">v0.1.0-beta.6</span> 探针镜像，安装包已固定不可变 Digest。管理端必须可通过可信 HTTPS 访问。'], ['在探针机器的候选源码目录，按部署文档将此凭据保存至 deploy/probe-registration-token.txt，然后运行下列命令。不要把云厂商 Token 填入探针。', '从 GitHub 的 Narbe v0.1.0-beta.6 Release 下载并解压正式安装包，在探针机器的解压目录运行下列命令，按提示输入管理端 HTTPS 地址及上方一次性凭据。不要把云厂商 Token 填入探针。'], ['export NARBE_PROBE_CONTROL_URL=https://narbe.example.com\ndocker compose -f deploy/probe-compose.yaml up -d --build\n\ndocker compose -f deploy/probe-compose.yaml logs --tail=50 probe', './install-probe.sh\n\n./install-probe.sh status\n./install-probe.sh logs'], ['替换 HTTPS 域名。日志不会输出云密钥；在线及出口确认以后台状态为准。', '安装器拉取已发布镜像，不在探针机器编译源码。已有配置和身份保留；在线及实际出口以后台状态为准。']]
+
+def verify_test_release(authorized,head):
+ authorized,head=commit(authorized),commit(head)
+ if authorized!=head:raise ValueError('Owner authorization requires the exact source SHA; no later changes allowed')
+ baseline=commit(TEST_APPLICATION_BASELINE);ancestor(baseline,head)
+ differences=changed(baseline,head)
+ unapproved=differences-TEST_RELEASE_FILES
+ if unapproved:raise ValueError('Unauthorized application/build input changes: '+', '.join(sorted(unapproved)))
+ for path in TEST_RELEASE_FILES:
+  mode='100755' if path in {'release/publish.sh','release/install-probe.sh'} else '100644'
+  if not git('ls-tree',head,'--',path).startswith(mode+' blob '):raise ValueError('Test release file must retain its regular file type/mode: '+path)
+  raw=subprocess.check_output(['git','show',head+':'+path]);text=raw.decode('utf-8')
+  if any(ord(c)<32 and c not in '\t\r\n' for c in text):raise ValueError('Test release files must be ordinary UTF-8 text: '+path)
+ ui='internal/web/assets/connectivity-ui.js'
+ expected_ui=subprocess.check_output(['git','show',baseline+':'+ui]).decode('utf-8')
+ for old,new in TEST_UI_REPLACEMENTS:
+  if expected_ui.count(old)!=1:raise ValueError('UI deployment-copy baseline changed')
+  expected_ui=expected_ui.replace(old,new,1)
+ if subprocess.check_output(['git','show',head+':'+ui]).decode('utf-8')!=expected_ui:raise ValueError('Unauthorized frontend change beyond deployment instructions')
+ authorization=json.loads(git('show',head+':release/OWNER_AUTHORIZATION.json'))
+ expected={'mode':TEST_MODE,'authorizedBy':'Owner','authorizationDate':'2026-11-20',
+  'authorizationText':'发布新的测试版本','manualIndependentReview':'not-performed-for-this-candidate',
+  'applicationBaselineSha':baseline,'version':TEST_VERSION}
+ if any(authorization.get(k)!=v for k,v in expected.items()):raise ValueError('Explicit current Owner test-release authorization is missing or inconsistent')
+ forbidden={'applicationReviewedSha','releaseReviewedSha','independentReview','deliveryEvidenceSha'}
+ if forbidden.intersection(authorization):raise ValueError('Owner test release must not impersonate independent review')
+ if git('show',head+':release/VERSION')!=TEST_VERSION:raise ValueError('Test release version does not match beta.6')
+ clean_build_inputs(head)
+ return {'releaseMode':TEST_MODE,'sourceSha':head,'authorizedSourceSha':authorized,
+  'applicationBaselineSha':baseline,'ownerAuthorization':authorization,'version':TEST_VERSION,
+  'releaseConfigurationChanges':sorted(differences)}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--application')
     parser.add_argument('--release')
     parser.add_argument('--owner-authorized-source')
+    parser.add_argument('--owner-authorized-test-source')
     parser.add_argument('--head', required=True)
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
     try:
-        if args.owner_authorized_source is not None:
+        if args.owner_authorized_test_source is not None:
+            if args.application is not None or args.release is not None or args.owner_authorized_source is not None:
+                raise ValueError('Test release, historical waiver and review paths cannot be mixed')
+            record=verify_test_release(args.owner_authorized_test_source,args.head)
+        elif args.owner_authorized_source is not None:
             if args.application is not None or args.release is not None:
                 raise ValueError('Owner waiver and independent-review paths cannot be mixed')
             record = verify_owner(args.owner_authorized_source, args.head)

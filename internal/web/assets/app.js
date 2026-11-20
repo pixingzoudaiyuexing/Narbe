@@ -1,5 +1,11 @@
 import { cloudPasswordInput } from "./password-ui.js";
+import { openIPManagement, ipJobResult } from "./ip-ui.js";
 import { networkSettings } from "./network-ui.js";
+import {
+  screeningFields,
+  bindScreening,
+  connectivityPage,
+} from "./connectivity-ui.js";
 import { startupFields, bindStartup } from "./startup-ui.js";
 import {
   initLinode,
@@ -62,8 +68,10 @@ const labels = {
   poweroff: "仅关机（计算仍计费）",
   reboot: "重启",
   delete: "删除服务器",
+  "ip-change": "更换 IP",
 };
 const statuses = {
+  screening: "正在自动筛选",
   running: "正在执行",
   active: "运行中",
   on: "运行中",
@@ -405,6 +413,7 @@ function shell() {
     ["instances", "▦", "服务器"],
     ["accounts", "◈", "云账号"],
     ["jobs", "◷", "操作任务"],
+    ["connectivity", "◎", "国内连通性"],
     ["settings", "⚙", "设置"],
   ]
     .map(
@@ -447,6 +456,11 @@ function render() {
   if (state.tab === "settings" && content?.querySelector("#password-form"))
     return;
   if (!content) return;
+  if (
+    state.tab === "connectivity" &&
+    content.querySelector("[data-screening-list]")
+  )
+    return;
   document
     .querySelectorAll("[data-nav]")
     .forEach((b) => b.classList.toggle("active", b.dataset.nav === state.tab));
@@ -456,6 +470,8 @@ function render() {
   if (state.tab === "accounts") renderAccounts(content);
   else if (state.tab === "jobs") renderJobs(content);
   else if (state.tab === "settings") renderSettings(content);
+  else if (state.tab === "connectivity")
+    connectivityPage(content, { api, esc, formAction, toast });
   else renderInstances(content);
   if (focusedID) {
     const next = document.getElementById(focusedID);
@@ -507,7 +523,7 @@ function renderInstances(el) {
           )
           .join(
             "",
-          )}</select><button data-action="${n}">执行</button></div></td></tr>`,
+          )}</select><button type="button" data-ip-management="${n}">公网 IP</button><button data-action="${n}">执行</button></div></td></tr>`,
     )
     .join("")}</tbody></table></div>`;
   let body;
@@ -634,6 +650,10 @@ function renderInstances(el) {
     (b) =>
       (b.onclick = () => instanceDetails(items[+b.dataset.details], acc, v)),
   );
+  el.querySelectorAll("[data-ip-management]").forEach(
+    (b) =>
+      (b.onclick = () => showIPManagement(items[+b.dataset.ipManagement], acc)),
+  );
 }
 async function refresh(force = false, retry = "") {
   const aid = state.accountId,
@@ -654,8 +674,28 @@ function instanceDetails(i, acc, v) {
   }
   openDialog(
     "服务器详情",
-    `<dl class="summary"><dt>云厂商 / 账号</dt><dd>${esc(providers[acc.provider] + " · " + acc.name)}</dd><dt>服务器</dt><dd>${esc(i.name)}</dd><dt>地区</dt><dd>${esc(regionLabel(v.regions, i.region, i.regionName))}</dd><dt>资源 ID</dt><dd class="mono">${esc(i.id)}</dd><dt>状态</dt><dd>${badge(i.state, true, acc.provider)}</dd><dt>配置</dt><dd>${esc(configLabel(i, acc.provider))}<br>${esc(i.plan || "型号未确认")}</dd><dt>系统</dt><dd>${esc(i.image || "系统版本未确认")}</dd><dt>公网 IP</dt><dd>${esc(i.ips?.join(" / ") || "未分配或未确认")}${i.metadataIncomplete ? "（部分网络信息未确认，请检查读取权限）" : ""}</dd><dt>广告价格</dt><dd>${esc(priceLabel(i.pricing))}</dd><dt>查询范围</dt><dd>${esc(v.scope)}</dd></dl><p class="notice">配置以云厂商查询结果为准，未知信息不会视为0或免费。独立磁盘、公网IP、备份、流量及系统授权可能额外计费。管理操作提交前会重新核实资源身份。</p>`,
+    `<dl class="summary"><dt>云厂商 / 账号</dt><dd>${esc(providers[acc.provider] + " · " + acc.name)}</dd><dt>服务器</dt><dd>${esc(i.name)}</dd><dt>地区</dt><dd>${esc(regionLabel(v.regions, i.region, i.regionName))}</dd><dt>资源 ID</dt><dd class="mono">${esc(i.id)}</dd><dt>状态</dt><dd>${badge(i.state, true, acc.provider)}</dd><dt>配置</dt><dd>${esc(configLabel(i, acc.provider))}<br>${esc(i.plan || "型号未确认")}</dd><dt>系统</dt><dd>${esc(i.image || "系统版本未确认")}</dd><dt>公网 IP</dt><dd>${esc(i.ips?.join(" / ") || "未分配或未确认")}${i.metadataIncomplete ? "（部分网络信息未确认，请检查读取权限）" : ""}</dd><dt>广告价格</dt><dd>${esc(priceLabel(i.pricing))}</dd><dt>查询范围</dt><dd>${esc(v.scope)}</dd></dl><p><button type="button" data-open-ip>公网 IP 管理</button></p><p class="notice">配置以云厂商查询结果为准，未知信息不会视为0或免费。独立磁盘、公网IP、备份、流量及系统授权可能额外计费。管理操作提交前会重新核实资源身份。</p>`,
   );
+  dialog.querySelector("[data-open-ip]").onclick = () =>
+    showIPManagement(i, acc);
+}
+function showIPManagement(i, acc) {
+  openIPManagement(i, acc, {
+    api,
+    esc,
+    openDialog,
+    dialog,
+    intentID,
+    submit,
+    formAction,
+    createReplacement: (preset) => createDialog(preset),
+    viewConnectivity: () => {
+      dialog.close();
+      state.tab = "connectivity";
+      shell();
+    },
+    refreshInventory: () => refresh(true),
+  });
 }
 function openDialog(title, body) {
   dialog.innerHTML = `<header class="dialog-head"><h2 id="dialog-title">${esc(title)}</h2><button class="quiet" type="button" data-close aria-label="关闭">✕</button></header><div class="dialog-body">${body}</div>`;
@@ -824,7 +864,7 @@ function renderAccounts(el) {
       }),
   );
 }
-async function createDialog() {
+async function createDialog(preset = {}) {
   const intentId = intentID();
   if (!intentId || !account()) return;
   const aid = state.accountId,
@@ -835,10 +875,11 @@ async function createDialog() {
     loadingCatalog = false;
   openDialog(
     "创建服务器",
-    `<form id="create-form"><div class="error-box" role="alert"></div><p class="sub">${esc(providers[provider])} · ${esc(account().name)}</p><div class="section-title"><span class="step">1</span>地区与配置</div><label class="field">服务器名称<input name="name" pattern="[A-Za-z0-9-]{1,63}" maxlength="63" required placeholder="例如：dev-server-01"></label><label class="field">搜索地区<input name="regionSearch" type="search" placeholder="输入中文位置或原始地区代码"></label><div class="grid2"><label class="field">地区<select name="region" required>${groupedRegions(catalog?.regions, state.region, "正在加载地区…")}</select></label><label class="field">规格<select name="plan" required disabled><option value="">先选择地区</option></select></label></div><div id="plan-info" class="notice">先选择地区，查询该地区可用的CPU、内存、磁盘和价格。</div><button type="button" class="quiet" id="retry-catalog" disabled>重新查询（将重置配置选择）</button><label class="field">搜索系统镜像<input name="imageSearch" placeholder="Ubuntu、Debian、Windows Server…" type="search"></label><label class="field">系统镜像<select name="image" required disabled><option value="">先选择地区和规格</option></select><p class="help">优先展示上游维护中的版本。维护期来源于官方发行数据；无法核实时标记未确认。</p><p id="image-compatibility" class="help"></p></label><label class="check"><input name="showOlder" type="checkbox">显示维护结束或尚未发布的镜像</label><div id="network-fields"></div><div class="section-title"><span class="step">2</span>登录与启动</div><div id="access-fields"></div>${startupFields()}${provider === "linode" ? firewallFields() : ""}<details><summary>更多启动选项</summary>${["aws", "digitalocean"].includes(provider) ? '<label class="check"><input name="ipv6" type="checkbox">分配 IPv6（需要地区及网络支持）</label>' : ""}${["linode", "digitalocean"].includes(provider) ? '<label class="check"><input name="backups" type="checkbox">启用云厂商自动备份（可能额外收费）</label>' : ""}${provider === "azure" ? '<label class="field">系统盘容量 GB（留空使用镜像默认值）<input name="disk" type="number" min="1" max="4095"></label>' : ""}</details><div class="section-title"><span class="step">3</span>核对配置</div><dl id="create-summary" class="summary" aria-live="polite"></dl><div class="notice">创建会产生云服务费用。提交后可在操作任务中查看进度。${provider === "azure" ? "将自动创建公网 IP 和网卡，资源名称附加任务后缀。所选子网需配置合适的安全规则。" : ""}</div><div class="dialog-actions"><button type="button" data-close>取消</button><button class="primary" type="submit" disabled>创建服务器</button></div></form>`,
+    `<form id="create-form"><div class="error-box" role="alert"></div><p class="sub">${esc(providers[provider])} · ${esc(account().name)}</p><div class="section-title"><span class="step">1</span>地区与配置</div><label class="field">服务器名称<input name="name" pattern="[A-Za-z0-9-]{1,63}" maxlength="63" value="${esc(preset.name || "")}" required placeholder="例如：dev-server-01"></label><label class="field">搜索地区<input name="regionSearch" type="search" placeholder="输入中文位置或原始地区代码"></label><div class="grid2"><label class="field">地区<select name="region" required>${groupedRegions(catalog?.regions, preset.region || state.region, "正在加载地区…")}</select></label><label class="field">规格<select name="plan" required disabled><option value="">先选择地区</option></select></label></div><div id="plan-info" class="notice">先选择地区，查询该地区可用的CPU、内存、磁盘和价格。</div><button type="button" class="quiet" id="retry-catalog" disabled>重新查询（将重置配置选择）</button><label class="field">搜索系统镜像<input name="imageSearch" placeholder="Ubuntu、Debian、Windows Server…" type="search"></label><label class="field">系统镜像<select name="image" required disabled><option value="">先选择地区和规格</option></select><p class="help">优先展示上游维护中的版本。维护期来源于官方发行数据；无法核实时标记未确认。</p><p id="image-compatibility" class="help"></p></label><label class="check"><input name="showOlder" type="checkbox">显示维护结束或尚未发布的镜像</label><div id="network-fields"></div><div class="section-title"><span class="step">2</span>登录与启动</div><div id="access-fields"></div>${startupFields()}${provider === "linode" ? firewallFields() : ""}<details><summary>更多启动选项</summary>${["aws", "digitalocean"].includes(provider) ? '<label class="check"><input name="ipv6" type="checkbox">分配 IPv6（需要地区及网络支持）</label>' : ""}${["linode", "digitalocean"].includes(provider) ? '<label class="check"><input name="backups" type="checkbox">启用云厂商自动备份（可能额外收费）</label>' : ""}${provider === "azure" ? '<label class="field">系统盘容量 GB（留空使用镜像默认值）<input name="disk" type="number" min="1" max="4095"></label>' : ""}</details>${screeningFields()}<div class="section-title"><span class="step">3</span>核对配置</div><dl id="create-summary" class="summary" aria-live="polite"></dl><div class="notice">创建会产生云服务费用。提交后可在操作任务中查看进度。${provider === "azure" ? "将自动创建公网 IP 和网卡，资源名称附加任务后缀。所选子网需配置合适的安全规则。" : ""}</div><div class="dialog-actions"><button type="button" data-close>取消</button><button class="primary" type="submit" disabled>创建服务器</button></div></form>`,
   );
   const f = dialog.querySelector("form");
   const selectedAccount = account();
+  const screening = bindScreening(f, { api });
   const startup = bindStartup({
     form: f,
     provider,
@@ -888,6 +929,12 @@ async function createDialog() {
       ],
       ["服务器名称", f.elements.name.value || "尚未填写"],
       ["初始化脚本", startup.summary()],
+      [
+        "国内 IP 检测",
+        f.elements.screeningEnabled.checked
+          ? `${f.elements.screeningProtocol.value.toUpperCase()} :${f.elements.screeningPort.value} · ${f.elements.screeningReplace.checked ? `自动换 IP，最多 ${f.elements.screeningAttempts.value} 次，估算预算 $${f.elements.screeningBudget.value}` : "仅检测，不自动更换"}`
+          : "未启用",
+      ],
       ...(provider === "linode"
         ? [
             [
@@ -1124,6 +1171,7 @@ async function createDialog() {
         target: "",
         name: spec.name,
         spec,
+        ...(screening.spec() ? { screening: screening.spec() } : {}),
         confirmation: "",
         confirmName: spec.name,
       };
@@ -1132,11 +1180,14 @@ async function createDialog() {
       dialog.close();
     });
   };
-  if (!catalog?.regions) {
+  if (!Array.isArray(catalog?.regions) || !catalog.regions.length) {
     try {
       catalog = await api("catalog?accountId=" + encodeURIComponent(aid));
       if (!dialog.open || !f.isConnected || state.accountId !== aid) return;
-      f.region.innerHTML = groupedRegions(catalog.regions, state.region);
+      f.region.innerHTML = groupedRegions(
+        catalog.regions,
+        preset.region || state.region,
+      );
     } catch (e) {
       f.querySelector(".error-box").textContent = e.message;
     }
@@ -1282,8 +1333,15 @@ function renderJobs(el) {
       "查看进度与结果。结果未知的操作不会自动重新执行。",
       `<button id="refresh-jobs">↻ 刷新</button>`,
     ) +
-    `<section class="panel">${state.jobs.length ? state.jobs.map((j) => `<article class="task-row"><div class="task-top"><div><h3>${esc(labels[j.action] || j.action)} · ${esc(j.name)}</h3><div class="secondary">${esc(state.accounts.find((a) => a.id === j.accountId)?.name || "已移除账号")} · ${esc(j.region)} · ${date(j.created)}</div></div>${badge(j.state)}</div><p>${esc(taskProgress(j))}${j.error ? " · " + esc(j.error) : ""}</p>${j.state === "unknown" ? '<p class="help">最后一步尚未核实，后续风险步骤已停止。可先只读核实，必要时到云控制台检查；系统不会自动重发未知的云写请求。</p>' : ""}${deletionLedgerDetails(j)}${startupDetails(j)}<details><summary>资源与任务标识</summary><pre>${esc("任务：" + j.id + "\n资源：" + (j.result?.resourceId || j.target || "尚未取得") + (j.result?.owned?.length ? "\n关联资源（可能继续计费）：\n" + j.result.owned.join("\n") : ""))}</pre></details>${j.state === "unknown" ? `<p><button data-reconcile="${esc(j.id)}">只读核实云端状态</button> <button data-resolve="${esc(j.id)}" data-name="${esc(j.name)}">已在云控制台核实</button></p>` : ""}${j.state === "queued" ? `<p><button data-cancel="${esc(j.id)}">取消等待中的操作</button></p>` : ""}</article>`).join("") : '<div class="empty"><div class="empty-icon">◷</div><h2>还没有操作任务</h2><p>创建或管理服务器后，操作进度会显示在这里。</p></div>'}</section><p class="footer-note">最多显示最近 200 条记录。未派发任务等待或校验超过 5 分钟、应用重启时会取消，需重新检查并确认。已提交操作结果未知时，请先核实云端，不要直接重复创建。</p>`;
+    `<section class="panel">${state.jobs.length ? state.jobs.map((j) => `<article class="task-row"><div class="task-top"><div><h3>${esc(labels[j.action] || j.action)} · ${esc(j.name)}</h3><div class="secondary">${esc(state.accounts.find((a) => a.id === j.accountId)?.name || "已移除账号")} · ${esc(j.region)} · ${date(j.created)}</div></div>${badge(j.state)}</div><p>${esc(taskProgress(j))}${j.error ? " · " + esc(j.error) : ""}</p>${j.state === "unknown" ? '<p class="help">最后一步尚未核实，后续风险步骤已停止。可先只读核实，必要时到云控制台检查；系统不会自动重发未知的云写请求。</p>' : ""}${ipJobResult(j, esc)}${j.screeningId ? "<p><button data-view-screening>查看国内筛选进度</button></p>" : ""}${deletionLedgerDetails(j)}${startupDetails(j)}<details><summary>资源与任务标识</summary><pre>${esc("任务：" + j.id + "\n资源：" + (j.result?.resourceId || j.target || "尚未取得") + (j.result?.owned?.length ? "\n关联资源（可能继续计费）：\n" + j.result.owned.join("\n") : ""))}</pre></details>${j.state === "unknown" ? `<p><button data-reconcile="${esc(j.id)}">只读核实云端状态</button> <button data-resolve="${esc(j.id)}" data-name="${esc(j.name)}">已在云控制台核实</button></p>` : ""}${j.state === "queued" ? `<p><button data-cancel="${esc(j.id)}">取消等待中的操作</button></p>` : ""}</article>`).join("") : '<div class="empty"><div class="empty-icon">◷</div><h2>还没有操作任务</h2><p>创建或管理服务器后，操作进度会显示在这里。</p></div>'}</section><p class="footer-note">最多显示最近 200 条记录。未派发任务等待或校验超过 5 分钟、应用重启时会取消，需重新检查并确认。已提交操作结果未知时，请先核实云端，不要直接重复创建。</p>`;
   el.querySelector("#refresh-jobs").onclick = updateJobs;
+  el.querySelectorAll("[data-view-screening]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        state.tab = "connectivity";
+        shell();
+      }),
+  );
   for (const [attr, action] of [
     ["reconcile", "reconcile"],
     ["cancel", "cancel"],
@@ -1383,6 +1441,7 @@ initLinode({
   account: () => account(),
   accounts: () => state.accounts,
   toast,
+  showIPManagement,
 });
 
 async function showLinodePermissions(acc) {

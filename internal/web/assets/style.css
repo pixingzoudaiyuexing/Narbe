@@ -1062,3 +1062,232 @@ td button.name {
   padding: 12px;
   line-height: 1.65;
 }
+
+/* Connectivity tasks share the existing operations workbench surfaces. */
+.screening-create {
+  margin: 24px 0;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.screening-create h3 {
+  margin: 0 0 14px;
+}
+.screening-create fieldset {
+  border: 0;
+  margin: 16px 0 0;
+  padding: 0;
+  min-width: 0;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+.connectivity-workflows,
+.connectivity-probes {
+  margin-bottom: 24px;
+}
+.screening-task,
+.probe-row {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+.screening-task:last-child,
+.probe-row:last-child {
+  border-bottom: 0;
+}
+.screening-task h3,
+.probe-row h3 {
+  margin: 0;
+  line-height: 1.5;
+}
+.screening-stage {
+  font-weight: 600;
+}
+.screening-history {
+  margin: 18px 0;
+}
+.screening-round {
+  border-left: 2px solid var(--line);
+  padding: 1px 14px;
+  margin: 16px 0;
+}
+.screening-round h4 {
+  margin: 8px 0;
+}
+.screening-task .mono,
+.probe-row .mono,
+.screening-resources {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.probe-register {
+  margin-top: 20px;
+}
+.probe-register summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+#probe-registration {
+  margin-top: 20px;
+  max-width: 740px;
+}
+[data-probe-registration-result] {
+  max-width: 740px;
+  margin-top: 18px;
+}
+@media (max-width: 700px) {
+  .nav {
+    overflow-x: auto;
+  }
+  .nav button {
+    flex: 0 0 auto;
+  }
+  .screening-task .task-top,
+  .probe-row .task-top {
+    align-items: flex-start;
+  }
+  .screening-task .row-actions {
+    flex-wrap: wrap;
+  }
+}
+.connectivity-workflows .screening-task,
+.connectivity-probes .probe-row {
+  padding: 20px 24px;
+}
+.connectivity-probes > .help {
+  margin: 18px 24px;
+}
+.connectivity-probes .probe-register {
+  margin: 20px 24px;
+}
+@media (max-width: 700px) {
+  .connectivity-workflows .screening-task,
+  .connectivity-probes .probe-row {
+    padding: 18px 16px;
+  }
+  .connectivity-probes > .help {
+    margin: 16px;
+  }
+  .connectivity-probes .probe-register {
+    margin: 20px 16px;
+  }
+}
+.probe-deploy-command {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 14px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.ip-management {
+  min-width: 0;
+}
+.ip-addresses {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin: 20px 0;
+  background: var(--line);
+  border: 1px solid var(--line);
+}
+.ip-addresses > div {
+  min-width: 0;
+  padding: 14px;
+  background: var(--white);
+}
+.ip-addresses span,
+.ip-addresses strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.ip-addresses > div > span {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.ip-addresses strong {
+  font-size: 14px;
+  line-height: 1.6;
+}
+.ip-addresses small {
+  color: var(--muted);
+  font-weight: 400;
+}
+.ip-section {
+  border-top: 1px solid var(--line);
+  padding: 18px 0;
+}
+.ip-section h3 {
+  font-size: 15px;
+  margin: 0 0 12px;
+}
+[data-ip-check-panel] {
+  margin-top: 18px;
+}
+.ip-methods {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0;
+}
+.ip-method {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  cursor: pointer;
+}
+.ip-method:has(input:checked) {
+  border-color: var(--brand);
+  background: var(--soft);
+}
+.ip-method.unavailable {
+  background: var(--paper);
+  cursor: default;
+}
+.ip-method input {
+  width: 16px;
+  min-height: 16px;
+  flex: 0 0 16px;
+  margin: 2px 0 0;
+}
+.ip-method span {
+  min-width: 0;
+}
+.ip-method strong,
+.ip-method small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.ip-method small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  margin-top: 3px;
+}
+.ip-method .ip-unavailable {
+  color: var(--danger);
+}
+.ip-job-result {
+  border-top: 1px solid var(--line);
+  margin: 16px 0;
+}
+@media (max-width: 700px) {
+  .ip-addresses {
+    grid-template-columns: 1fr;
+  }
+  .ip-management .dialog-actions {
+    flex-wrap: wrap;
+  }
+}

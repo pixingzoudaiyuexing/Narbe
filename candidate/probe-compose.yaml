@@ -1,0 +1,29 @@
+name: narbe-probe-candidate
+services:
+  probe:
+    image: ${NARBE_PROBE_IMAGE:?缺少已校验的 Probe 候选镜像}
+    restart: unless-stopped
+    read_only: true
+    user: "65532:65532"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 96m
+    environment:
+      NARBE_PROBE_CONTROL_URL: ${NARBE_PROBE_CONTROL_URL:?请设置可信 HTTPS 管理端地址}
+      NARBE_PROBE_REGISTRATION_TOKEN_FILE: /run/secrets/registration_token
+      NARBE_PROBE_ALLOWED_PORTS: ${NARBE_PROBE_ALLOWED_PORTS:-22,80,443,8443,8080}
+    secrets:
+      - registration_token
+    volumes:
+      - probe_data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+secrets:
+  registration_token:
+    file: ./secrets/probe-registration-token
+volumes:
+  probe_data:

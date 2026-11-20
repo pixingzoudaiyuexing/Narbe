@@ -125,12 +125,19 @@ INSERT OR IGNORE INTO settings(key,value) VALUES('schema_version','1');
 			return nil, errors.New("master.key 与数据库不匹配，请恢复原密钥")
 		}
 	}
+	if e = s.initConnectivity(); e != nil {
+		db.Close()
+		return nil, e
+	}
 	recovery, e := db.Begin()
 	if e != nil {
 		db.Close()
 		return nil, e
 	}
 	_, e = recovery.Exec("UPDATE jobs SET state='unknown',progress='应用重启；最后阶段：'||progress||'；请核实云端结果，系统不会自动重复执行',updated=unixepoch() WHERE state='running'; UPDATE jobs SET state='cancelled',progress='应用重启，未派发任务已取消；请重新检查并确认操作',updated=unixepoch() WHERE state='queued'; DELETE FROM sessions WHERE expires<unixepoch(); DELETE FROM confirmations;")
+	if e == nil {
+		_, e = recovery.Exec("UPDATE jobs SET state='unknown',progress='自动筛选因服务重启暂停；仅允许只读核实，不会重放任何云写',updated=unixepoch() WHERE state='screening'; UPDATE screenings SET state='paused',stage='服务重启：仅只读核实，不自动恢复云写',busy=0,updated=unixepoch() WHERE state IN ('queued','creating','waiting-ready','probing','replacing'); UPDATE probe_tasks SET state='expired' WHERE state IN ('queued','leased'); UPDATE screening_controls SET state='expired' WHERE state IN ('queued','running');")
+	}
 	if e == nil {
 		e = recovery.Commit()
 	}

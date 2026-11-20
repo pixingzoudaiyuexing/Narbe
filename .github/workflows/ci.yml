@@ -8,12 +8,12 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
-          go-version: '1.26.10'
+          go-version: '1.26.11'
           cache: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
@@ -25,28 +25,100 @@ jobs:
       - run: python3 release/test_verify_source.py
       - run: python3 release/test_verify_ci.py
       - run: python3 release/test_bundle.py
+      - run: python3 scripts/test_candidate_bundle.py
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - run: npm ci --ignore-scripts
-      - run: npx prettier --check internal/web/assets scripts/browser-test.mjs scripts/browser-regressions.mjs scripts/browser-linode.mjs scripts/browser-startup.mjs scripts/browser-beta5.mjs scripts/browser-task-ux.mjs scripts/format-test.mjs
+      - run: npx prettier --check internal/web/assets scripts/browser-test.mjs scripts/browser-regressions.mjs scripts/browser-linode.mjs scripts/browser-startup.mjs scripts/browser-beta5.mjs scripts/browser-task-ux.mjs scripts/browser-connectivity.mjs scripts/browser-ip-management.mjs scripts/browser-ip-real.mjs scripts/format-test.mjs
       - run: node scripts/format-test.mjs
       - run: npx playwright install --with-deps chromium
       - run: NARBE_BROWSER_TEST=1 go test ./internal/app -run TestBrowser -v -timeout=180s
-      - run: docker build -t narbe/ci:check .
+      - run: test "$(uname -m)" = x86_64
+      - run: docker build --build-arg VERSION=cn-candidate --build-arg "REVISION=$GITHUB_SHA" -t narbe/ci:check .
       - run: NARBE_IMAGE=narbe/ci:check python3 scripts/test_runtime.py
-      - run: docker pull ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.4@sha256:1d1f45b4a357fd609e818606e549b0ebabb98e8486fd4e4c43f09e542c548560
-      - run: python3 scripts/test_upgrade.py --old-image ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.4@sha256:1d1f45b4a357fd609e818606e549b0ebabb98e8486fd4e4c43f09e542c548560 --new-image narbe/ci:check
+      - run: docker pull ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.5@sha256:bd27a8523fb2221ab5b66778a4e9408800281dcfc6c7dfc9d543e4117afea070
+      - run: python3 scripts/test_upgrade.py --old-image ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.5@sha256:bd27a8523fb2221ab5b66778a4e9408800281dcfc6c7dfc9d543e4117afea070 --new-image narbe/ci:check
+      - run: docker build -f Dockerfile.probe --build-arg VERSION=cn-candidate --build-arg "REVISION=$GITHUB_SHA" -t narbe-probe/ci:check .
+      - name: Observe native Linux host IPv4 egress for Docker route comparison
+        run: |
+          mkdir -p .local
+          if curl --ipv4 --noproxy "*" --fail --silent --show-error --connect-timeout 5 --max-time 15 --max-filesize 4096 https://api.country.is/ > .local/probe-host-egress.json; then
+            echo "HOST_IPV4_EGRESS=$(cat .local/probe-host-egress.json)"
+          else
+            echo 'HOST_IPV4_EGRESS={"status":"unverified","reason":"public geolocation service unavailable"}'
+          fi
+      - run: NARBE_PROBE_IMAGE=narbe-probe/ci:check python3 scripts/test_probe_runtime.py
+      - name: Export verified AMD64 Probe candidate
+        run: |
+          artifact="$RUNNER_TEMP/narbe-probe-linux-amd64"
+          mkdir -p "$artifact"
+          docker image save --output "$artifact/narbe-probe-linux-amd64.tar" narbe-probe/ci:check
+          docker image inspect narbe-probe/ci:check > "$artifact/image-inspect.json"
+          printf '%s\n' "$GITHUB_SHA" > "$artifact/SOURCE_SHA"
+          cd "$artifact"
+          sha256sum narbe-probe-linux-amd64.tar image-inspect.json SOURCE_SHA > SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: narbe-probe-linux-amd64
+          path: ${{ runner.temp }}/narbe-probe-linux-amd64/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 6
+      - name: Export installable AMD64 manager and Probe candidate
+        run: python3 candidate/build.py --sha "$GITHUB_SHA" --arch amd64 --manager narbe/ci:check --probe narbe-probe/ci:check --out "$RUNNER_TEMP/narbe-candidate-linux-amd64"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: narbe-candidate-linux-amd64
+          path: ${{ runner.temp }}/narbe-candidate-linux-amd64/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
   arm64-runtime:
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
-          go-version: '1.26.10'
+          go-version: '1.26.11'
           cache: false
       - run: test "$(uname -m)" = aarch64
-      - run: docker build --build-arg VERSION=task-ux-candidate --build-arg "REVISION=$GITHUB_SHA" -t narbe/ci:arm64 .
+      - run: docker build --build-arg VERSION=cn-candidate --build-arg "REVISION=$GITHUB_SHA" -t narbe/ci:arm64 .
       - run: docker image inspect narbe/ci:arm64 --format 'architecture={{.Architecture}} bytes={{.Size}} image={{.Id}} revision={{index .Config.Labels "org.opencontainers.image.revision"}}'
       - run: NARBE_IMAGE=narbe/ci:arm64 python3 scripts/test_runtime.py
-      - run: docker pull ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.4@sha256:1d1f45b4a357fd609e818606e549b0ebabb98e8486fd4e4c43f09e542c548560
-      - run: python3 scripts/test_upgrade.py --old-image ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.4@sha256:1d1f45b4a357fd609e818606e549b0ebabb98e8486fd4e4c43f09e542c548560 --new-image narbe/ci:arm64
+      - run: docker pull ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.5@sha256:bd27a8523fb2221ab5b66778a4e9408800281dcfc6c7dfc9d543e4117afea070
+      - run: python3 scripts/test_upgrade.py --old-image ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.5@sha256:bd27a8523fb2221ab5b66778a4e9408800281dcfc6c7dfc9d543e4117afea070 --new-image narbe/ci:arm64
+      - run: docker build -f Dockerfile.probe --build-arg VERSION=cn-candidate --build-arg "REVISION=$GITHUB_SHA" -t narbe-probe/ci:arm64 .
+      - name: Observe native Linux host IPv4 egress for Docker route comparison
+        run: |
+          mkdir -p .local
+          if curl --ipv4 --noproxy "*" --fail --silent --show-error --connect-timeout 5 --max-time 15 --max-filesize 4096 https://api.country.is/ > .local/probe-host-egress.json; then
+            echo "HOST_IPV4_EGRESS=$(cat .local/probe-host-egress.json)"
+          else
+            echo 'HOST_IPV4_EGRESS={"status":"unverified","reason":"public geolocation service unavailable"}'
+          fi
+      - run: NARBE_PROBE_IMAGE=narbe-probe/ci:arm64 python3 scripts/test_probe_runtime.py
+      - name: Export verified ARM64 Probe candidate
+        run: |
+          artifact="$RUNNER_TEMP/narbe-probe-linux-arm64"
+          mkdir -p "$artifact"
+          docker image save --output "$artifact/narbe-probe-linux-arm64.tar" narbe-probe/ci:arm64
+          docker image inspect narbe-probe/ci:arm64 > "$artifact/image-inspect.json"
+          printf '%s\n' "$GITHUB_SHA" > "$artifact/SOURCE_SHA"
+          cd "$artifact"
+          sha256sum narbe-probe-linux-arm64.tar image-inspect.json SOURCE_SHA > SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: narbe-probe-linux-arm64
+          path: ${{ runner.temp }}/narbe-probe-linux-arm64/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 6
+      - name: Export installable ARM64 manager and Probe candidate
+        run: python3 candidate/build.py --sha "$GITHUB_SHA" --arch arm64 --manager narbe/ci:arm64 --probe narbe-probe/ci:arm64 --out "$RUNNER_TEMP/narbe-candidate-linux-arm64"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: narbe-candidate-linux-arm64
+          path: ${{ runner.temp }}/narbe-candidate-linux-arm64/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
