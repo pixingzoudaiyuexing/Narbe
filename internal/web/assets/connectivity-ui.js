@@ -401,10 +401,10 @@ export async function connectivityPage(el, { api, esc, formAction, toast }) {
       )
         throw Error("未取得有效的注册凭据，请核实探针记录");
       const area = el.querySelector("[data-probe-registration-result]");
-      area.innerHTML = `<div class="notice">注册凭据只展示这一次，5 分钟后失效。仅交给这台探针，不包含云账号密钥；离开页面即清除。</div><p class="help">使用本次构建的候选镜像 <span class="mono">narbe-probe:cn-candidate</span>（尚未正式发布）。管理端必须可通过可信 HTTPS 访问。</p><label class="field">一次性注册凭据<input readonly data-probe-token autocomplete="off"></label><p class="help">在探针机器的候选源码目录，按部署文档将此凭据保存至 deploy/probe-registration-token.txt，然后运行下列命令。不要把云厂商 Token 填入探针。</p><pre class="probe-deploy-command">export NARBE_PROBE_CONTROL_URL=https://narbe.example.com
-docker compose -f deploy/probe-compose.yaml up -d --build
+      area.innerHTML = `<div class="notice">注册凭据只展示这一次，5 分钟后失效。仅交给这台探针，不包含云账号密钥；离开页面即清除。</div><p class="help">使用正式测试版 <span class="mono">v0.1.0-beta.6</span> 探针镜像，安装包已固定不可变 Digest。管理端必须可通过可信 HTTPS 访问。</p><label class="field">一次性注册凭据<input readonly data-probe-token autocomplete="off"></label><p class="help">从 GitHub 的 Narbe v0.1.0-beta.6 Release 下载并解压正式安装包，在探针机器的解压目录运行下列命令，按提示输入管理端 HTTPS 地址及上方一次性凭据。不要把云厂商 Token 填入探针。</p><pre class="probe-deploy-command">./install-probe.sh
 
-docker compose -f deploy/probe-compose.yaml logs --tail=50 probe</pre><p class="help">替换 HTTPS 域名。日志不会输出云密钥；在线及出口确认以后台状态为准。</p><button type="button" data-probe-clear>清除页面中的凭据</button>`;
+./install-probe.sh status
+./install-probe.sh logs</pre><p class="help">安装器拉取已发布镜像，不在探针机器编译源码。已有配置和身份保留；在线及实际出口以后台状态为准。</p><button type="button" data-probe-clear>清除页面中的凭据</button>`;
       area.querySelector("[data-probe-token]").value = v.registrationToken;
       area.querySelector("[data-probe-clear]").onclick = () =>
         area.replaceChildren();

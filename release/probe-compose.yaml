@@ -1,0 +1,36 @@
+name: narbe-probe
+services:
+  probe:
+    image: ${NARBE_PROBE_IMAGE:?请使用完整正式安装包中的 probe-image.env}
+    restart: unless-stopped
+    network_mode: ${NARBE_PROBE_NETWORK_MODE:-bridge}
+    read_only: true
+    user: "65532:65532"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 96m
+    environment:
+      NARBE_PROBE_CONTROL_URL: ${NARBE_PROBE_CONTROL_URL:?请运行 ./install-probe.sh}
+      NARBE_PROBE_REGISTRATION_TOKEN_FILE: /run/secrets/registration_token
+      NARBE_PROBE_ALLOWED_PORTS: ${NARBE_PROBE_ALLOWED_PORTS:-22,80,443,8443,8080}
+    secrets:
+      - registration_token
+    volumes:
+      - probe_data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    labels:
+      io.narbe.project: Narbe
+      io.narbe.component: probe
+volumes:
+  probe_data:
+    labels:
+      io.narbe.project: Narbe
+      io.narbe.component: probe
+secrets:
+  registration_token:
+    file: ./secrets/probe-registration-token
