@@ -2,22 +2,36 @@
 
 轻量、中文优先的单用户多云服务器工作台。Go + SQLite + 内嵌 Web，单个非 root Docker 容器，无 MySQL、Redis 或前端运行时。
 
-**已发布测试版本为 [v0.1.0-beta.5](https://github.com/pixingzoudaiyuexing/Narbe/releases/tag/v0.1.0-beta.5)**，来源为 `80d326fa5ddbd777709a023825d171d3fd69e0ff`。它采用 Owner 明确免除该轮额外人工独立复审的发行路径，不冒称新的 Reviewer PASS；记录见 [Owner 发行记录](docs/BETA5_OWNER_RELEASE.md)。真实云写及自动改密 E2E 仍有缺口，不宣称生产稳定。
+**v0.1.0-beta.6 已获 Owner 授权，发行执行中；是否已发布以 [GitHub Release](https://github.com/pixingzoudaiyuexing/Narbe/releases/tag/v0.1.0-beta.6)、成功工作流和公开附件为准。** 本次没有新的人工独立复审，不宣称 Reviewer PASS。真实收费云写、自动改密与国内受阻 IP E2E 尚未完成，不宣称生产稳定。[beta.6 发行记录](docs/BETA6_RELEASE.md)
 
-当前 `codex/cn-connectivity` 是后续国内 IP 检测、自动筛选与四云手动换 IP **开发候选**，没有覆盖 beta.5 的 Tag、GHCR 或安装附件。功能和限制见 [完整功能说明](docs/CN_CONNECTIVITY.md)、[四云能力矩阵](docs/CN_PROVIDER_SOURCES.md)。
+本版整合国内 IP 自动筛选、已有服务器检测、四云手动换 IP 和独立 Docker Probe，基于已验证候选 `8d36215df29d2c1bb854c61afcc00d4582c7fc8f`。历史 [beta.5](https://github.com/pixingzoudaiyuexing/Narbe/releases/tag/v0.1.0-beta.5) 的 Tag、镜像和证据保持不变。功能和边界见 [完整功能说明](docs/CN_CONNECTIVITY.md)、[四云能力矩阵](docs/CN_PROVIDER_SOURCES.md)。
 
-## 测试版与候选安装
+## Docker 测试版安装与升级
 
-已发布 beta.5 从 [Release](https://github.com/pixingzoudaiyuexing/Narbe/releases/tag/v0.1.0-beta.5) 下载，版本及 Digest 固定，不使用 latest。新功能候选从对应成功 CI Run 下载 AMD64/ARM64 双镜像离线安装包；[候选安装及 beta.5 安全升级](docs/IP_CANDIDATE_INSTALL.md)无需服务器 Go 编译。候选安装包不能当作正式发行，勿直接套用到未核实的现有部署。
+**公开发行后，使用 Release 附件和 GHCR 镜像直接安装，不再要求登录 Actions 下载候选归档，也不在服务器编译 Go。** 管理端镜像为 `ghcr.io/pixingzoudaiyuexing/narbe:v0.1.0-beta.6`；可选 Probe 镜像为同一公开 Package 的 `v0.1.0-beta.6-probe`。安装包固定两者 Digest，不使用 latest。
 
-## 安装
+```bash
+mkdir -m 700 narbe-beta6 && cd narbe-beta6
+curl -fL --retry 3 -o narbe-v0.1.0-beta.6-install.tar.gz https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.6/narbe-v0.1.0-beta.6-install.tar.gz
+curl -fL --retry 3 -o SHA256SUMS https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.6/SHA256SUMS
+curl -fL --retry 3 -o release-evidence.json https://github.com/pixingzoudaiyuexing/Narbe/releases/download/v0.1.0-beta.6/release-evidence.json
+sha256sum -c SHA256SUMS
+tar -xzf narbe-v0.1.0-beta.6-install.tar.gz
+./install.sh
+```
+
+首次安装设置管理员密码，默认仅绑定 `127.0.0.1:8080`。国内 Probe 另在受控国内设备运行同包的 `./install-probe.sh`，通过可信 HTTPS 主动连接管理端，无需国内入站端口、不持有云 Token。先核实容器实际出口，不把物理位置当作国内直连证据。
+
+**已有 beta.5 不要直接把新包覆盖原目录，也不要在新目录启动另一项目。** [beta.5→beta.6 安全升级命令](release/README.md)会核实实际目录、Compose 项目和 Volume，停机完整备份后只替换 `image.env`，保留 SQLite、master.key、管理员密码、云账号、代理、端口和 Origin。不使用 `down -v`；回滚依赖完整升级前备份，旧镜像不证明新数据反向兼容。Owner 现有部署不会被自动修改。
+
+## 源码开发安装
 
 需要 Docker Engine/Desktop、Docker Compose v2、Buildx、Bash、OpenSSL、Python 3；仅源码开发需要 Go **1.26.11+**。支持 Linux amd64/arm64 源码构建；当前本机实际验证 linux/arm64，amd64 在 CI 构建。
 
 ```bash
 git clone https://github.com/pixingzoudaiyuexing/Narbe.git
 cd Narbe
-# 当前候选实现位于待审核 PR 分支；main 仅为初始化基线
+# 后续实现位于开发分支；main 不代表本版发行源码
 git switch codex/cn-connectivity
 ./scripts/start.sh
 ```
@@ -44,7 +58,7 @@ NARBE_GOPROXY=https://goproxy.cn,direct ./scripts/start.sh
 3. 创建时从官方目录选择规格和镜像。填写登录方式、网络等厂商特有配置，检查最终配置及费用后直接创建；可选择开启国内 IP 自动筛选。
 4. 实例操作依当前状态展示。后台核实准确资源身份；删除保留一次醒目的风险确认，不要求重复输入名称；删除无法撤销。
 5. 在「操作任务」查看进度。等待中的任务可取消；已提交的云操作无法通过关闭浏览器撤销。
-6. 未派发任务在应用重启时取消；正常等待或校验超过 5 分钟也取消，需重新检查配置并进行新的确认。系统时间异常产生未来时间戳时同样保守取消。已派发任务结果未知时先使用只读核实，再检查云控制台。仅在确认资源实际情况后，使用管理员密码记录人工核实并解除本地阻塞。该操作不会重发、重试或删除云资源。服务商标签可能延迟，未查到资源并不证明请求未发生。
+6. 未派发任务在应用重启时取消；正常等待或校验超过 5 分钟也取消，需重新检查配置并进行新的确认。系统时间异常产生未来时间戳时同样保守取消。已派发任务结果未知时先使用只读核实，再检查云控制台。unknown 不锁账号，也不自动重放；人工核实记录不会重发、重试或删除云资源。服务商标签可能延迟，未查到资源并不证明请求未发生。
 
 ### 四云差异
 
@@ -63,7 +77,9 @@ Linode 官方 API 要求密码 7–128 字符并检查服务端强度分数，�
 
 **云厂商“可用”不等于发行版仍受安全维护。** 数据源不可达、无法识别的自定义镜像或其他发行版会标记“维护期未确认”，不会推导为已维护。维护窗口也不证明某个镜像已经安装最新补丁。Linode/DO 不伪造 API 未提供的 ARM64 元数据。当前仅 AWS/Azure 按实际镜像和规格元数据开放 ARM64。
 
-## 升级、备份与恢复
+## 源码构建升级、备份与恢复
+
+公开 Docker 版使用上面的 Release 安全升级流程；下面仅适用于已核实的源码开发部署。
 
 ```bash
 # git pull 之前先确认本地改动；切到已经过审核的版本
@@ -75,7 +91,7 @@ docker compose up -d --no-build --wait
 
 `narbe_data` Volume 保存 SQLite 数据库、WAL 与 `master.key`。**不要执行 `docker compose down -v`，不要删除此 Volume 或更换主密钥。** 停止应用后完整备份 `/data`，包括数据库和主密钥；备份必须加密并限制访问。恢复时停止应用、整体恢复匹配的一套数据并保持 UID 65532 可写。密钥缺失/不匹配会拒绝启动；密钥丢失无法从数据库恢复云凭据。当前不提供在线主密钥轮换。
 
-应用启动创建 schema v1；同一数据目录只允许一个进程。未来升级如果引入不兼容迁移，必须先备份并按对应版本说明执行。不要将数据目录挂载到不支持可靠 SQLite 锁和 fsync 的网络文件系统。
+应用启动会执行当前版本的 SQLite 建表/迁移；同一数据目录只允许一个进程。升级前必须备份并按对应版本说明执行，不假定新增工作流数据能由旧版读取。不要将数据目录挂载到不支持可靠 SQLite 锁和 fsync 的网络文件系统。
 
 容器日志限制为 5 MB × 3，级别仅 info/warn/error，调试日志无默认入口。应用不记录云请求正文、凭据、登录密码。直接运行源码时请由服务管理器管理 stdout 日志轮转。任务历史保留在数据库；界面展示最近 200 条，不承诺无限数据量占用恒定空间。
 
@@ -101,6 +117,10 @@ macOS 浏览器验证默认使用已安装的 Google Chrome；其他环境使用
 
 更多说明：[架构与安全边界](docs/ARCHITECTURE.md)、[功能覆盖](docs/COVERAGE.md)、[内部审查](docs/REVIEW.md)、[实际验证](docs/VALIDATION.md)。
 
-## 国内 IP 自动筛选开发候选
+## 国内 IP 检测与自动筛选
 
-基于 beta.5 的后续候选实现见 [功能与安全边界](docs/CN_CONNECTIVITY.md)、[Probe Docker 部署](docs/PROBE.md)及[复审入口](docs/CN_CONNECTIVITY_REVIEW.md)。尚未作为新版本发布，现有 beta.5 安装与升级说明不变。
+创建时可开启国内 IP 检测与自动筛选，已有服务器可独立检测或手动换 IP；使用国内/海外同 IP 同端口对照、连续阈值和持久化步骤。海外也失败、没有监听端口、探针离线或证据不足不会自动删机，未知写不会重放。自动删除只限本轮准确归属的新建实例，已有服务器不删。等待不占原四个 Worker，也不增加账号或服务器业务锁。
+
+AWS 动态地址停启/EIP、Azure 静态 Public IP、Linode legacy/新式 Interfaces/保留 IPv4、DigitalOcean Reserved IP 分别按实际 API 提供能力；额外地址不冒充主 IP 已改变，旧收费资源须检查。预算为估算，停止任务不代表全部资源删除或停止计费。
+
+[功能与安全边界](docs/CN_CONNECTIVITY.md)、[四云矩阵与来源](docs/CN_PROVIDER_SOURCES.md)、[Probe 协议与安全边界](docs/PROBE.md)保留完整候选工程记录；其中离线候选构建/安装步骤属于历史流程，公开 beta.6 以上面的 Release 安装说明为准。未执行真实收费云写或真实被墙 IP E2E。
